@@ -544,6 +544,38 @@ suite.describe('run', function()
     expect((string.find(fixtures.read(order.config), Merged, 1, true))).toBeNil()
   end)
 
+  suite.it('merges under TES3Merge\'s other spellings, with every patch for a bare -p', function()
+    local order = fixtures.order('cli-spellings', fixtures.Objects, fixtures.Three)
+    local config, output = `--config={order.config}`, `--output-dir:{order.out}`
+
+    -- The summon is in the merge only because the summons patch flags it.
+    fixtures.forget()
+    expect(cli.run { config, output, '--ir', 'STAT', 'NPC_', '-r=MISC', 'NPC_', 'CREA', '-p' }).toBe(0)
+    expect(fixtures.output()).toBe(`tes3merge: wrote 2 merged records to {order.out}/{Merged}\n`)
+    expect(tes3.records.find(merged(order.out), 'MISC', 'jess_gem') ~= nil).toBe(true)
+    expect(tes3.records.find(merged(order.out), 'CREA', 'atronach_flame_summon') ~= nil).toBe(true)
+
+    fixtures.forget()
+    expect(cli.run { config, output, '--ir', 'STAT', 'NPC_', '-r=MISC', 'NPC_', 'CREA', '-p', 'none' }).toBe(0)
+    expect(fixtures.output()).toBe(`tes3merge: wrote 1 merged records to {order.out}/{Merged}\n`)
+    expect(tes3.records.find(merged(order.out), 'CREA', 'atronach_flame_summon')).toBeNil()
+
+    -- Inventories merge as a union under -i, as under --inclusive.
+    local function chest(inventory: { { unknown } }): fixtures.Fields
+      return { type = 'Container', id = 'jess_chest', name = 'Chest', inventory = inventory }
+    end
+
+    local chests = fixtures.order('cli-inclusive', {
+      ['Base.esm'] = { chest { { 1, 'jess_gem' } } },
+      ['A.esp'] = { chest { { 1, 'jess_gem' }, { 2, 'jess_key' } } },
+      ['B.esp'] = { chest { { 1, 'jess_gem' }, { 3, 'jess_coin' } } },
+    }, fixtures.Three)
+    expect(cli.run { '--config', chests.config, '--output-dir', chests.out }).toBe(0)
+    expect(jess.fs.exists(jess.fs.join(chests.out, Merged))).toBe(false)
+    expect(cli.run { '--config', chests.config, '--output-dir', chests.out, '-i' }).toBe(0)
+    expect(merged(chests.out):count()).toBe(2)
+  end)
+
   suite.it('takes the folder that holds the configuration, and every option with it', function()
     local order = fixtures.order(
       'cli-options',
