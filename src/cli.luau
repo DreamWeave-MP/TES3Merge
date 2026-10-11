@@ -1,0 +1,331 @@
+--!strict
+--!native
+--[[
+@tes3merge/cli: TES3Merge's command line.
+
+  run(argv) -> exit status
+  parse(argv) -> (command, nil) | (nil, message)
+
+  tes3merge [--config <openmw.cfg or its folder>] [options]
+  tes3merge --help
+
+A run is @tes3merge over the configuration `--config` names, else the one `OPENMW_CONFIG` names:
+each a file, or a folder holding an openmw.cfg. Every option is one of that module's, under the
+flag TES3Merge gave it; the settings TES3Merge read from `TES3Merge.ini`, which the port never
+reads, and the port's own options have a flag each as well. `parse` reads an argument list into
+the command it names without running it, or says what it couldn't read.
+
+The merge prints what it did itself. Afterwards each entry of its report's `failed` (a plugin
+that couldn't be read, a record that couldn't be merged) goes to standard error; those don't
+fail the run, as they don't fail the merge.
+
+Exit statuses: 0 when the merge ran, 8 when the command line can't be used (an unknown option, a
+missing or misspelled value, an argument that isn't an option, a command the port doesn't have,
+no configuration, a configuration that isn't there), 9 when the merge raised. Messages go to
+standard error as `tes3merge: <message>`.
+]]
+
+local fs = require '@dream/fs'
+local openmw = require '@openmw'
+local process = require '@dream/process'
+local tes3merge = require '@tes3merge'
+
+export type Command = {
+  action: 'merge' | 'help',
+  config: string?,
+  options: tes3merge.Options?,
+}
+
+local Exit = table.freeze { ok = 0, invalidInput = 8, runtime = 9 }
+
+local Usage = [[
+tes3merge: TES3Merge's object merging, over an OpenMW load order
+
+  tes3merge [--config <openmw.cfg or its folder>] [options]
+  tes3merge --help
+
+Reads the configuration's content files, merges each record three or more of them define, applies
+the patches, and writes "Merged Objects.esp" into the configuration's data-local folder, else its
+first data folder. The configuration is the one --config names, else the one OPENMW_CONFIG names;
+there is no default.
+
+TES3Merge's options:
+  --records <type>...         merge only these record types, by tag (NPC_ LEVI)
+  --ignore-records <type>...  never merge these record types
+  --inclusive                 merge NPC, creature, and container inventories as a union
+  --no-masters                write the merged plugin without a master list
+  --patches <name>...         the patches to apply: fogbug, summons, cellnames, all (the
+                              default), or none
+
+TES3Merge.ini isn't read. Its settings are options:
+  --record-types <type>...    [RecordTypes]: the record types to consider, in place of
+                              TES3Merge's 32
+  --file-filter <file>=<true|false>
+                              [FileFilters]: false leaves a content file unread
+  --object-filter <pattern>=<true|false>
+                              [ObjectFilters]: true keeps and false leaves out the records
+                              whose id matches the pattern, a case-insensitive regex; the
+                              last filter that matches decides
+  --encoding <encoding>       [General] TextEncodingCode: win1250, win1251, win1252, or a code
+                              page number (default the configuration's encoding=)
+  --output-dir <dir>          OutputPath: the folder to write into, made if it's missing
+
+The port's own:
+  --file-name <name>          the merged plugin's name
+  --activate                  add the merged plugin to the configuration's content and save
+                              it, backing it up first
+  --verbose                   print each merged record
+
+A flag that takes several values takes every argument up to the next flag, and adds to what an
+earlier use of it gave; --file-filter and --object-filter take one each and are repeated. The
+multipatch and verify commands aren't ported.
+
+Exit status: 0 done, 8 the command line can't be used, 9 the merge failed.]]
+
+local function out(text: string) process.write('stdout', `{text}\n`) end
+
+local function err(text: string) process.write('stderr', `{text}\n`) end
+
+local function usage(message: string): number
+  err(`tes3merge: {message}`)
+  return Exit.invalidInput
+end
+
+local function extend(list: { string }?, values: { string }): { string }
+  local extended: { string } = list or {}
+  table.move(values, 1, #values, #extended + 1, extended)
+  return extended
+end
+
+--- Each flag that takes one or more values, with what one of its values is called and where
+--- they go.
+local Lists: { [string]: { value: string, add: (tes3merge.Options, { string }) -> () } } = {
+  ['--records'] = {
+    value = 'a record type',
+    add = function(options, values) options.records = extend(options.records, values) end,
+  },
+  ['--ignore-records'] = {
+    value = 'a record type',
+    add = function(options, values)
+      options.ignoreRecords = extend(options.ignoreRecords, values)
+    end,
+  },
+  ['--record-types'] = {
+    value = 'a record type',
+    add = function(options, values) options.recordTypes = extend(options.recordTypes, values) end,
+  },
+  ['--patches'] = {
+    value = 'a patch name',
+    add = function(options, values) options.patches = extend(options.patches, values) end,
+  },
+}
+
+--- Each flag that takes no value, and the option it turns on.
+local Switches: { [string]: (tes3merge.Options) -> () } = {
+  ['--inclusive'] = function(options) options.inclusive = true end,
+  ['--no-masters'] = function(options) options.noMasters = true end,
+  ['--activate'] = function(options) options.activate = true end,
+  ['--verbose'] = function(options) options.verbose = true end,
+}
+
+--- A filter's two halves, split at its last `=`: what it names, and whether that is allowed.
+local function filter(value: string): (string?, boolean?)
+  local name, allow = string.match(value, '^(.+)=([^=]*)$')
+  local allowed = string.lower(allow or '')
+  if not name or (allowed ~= 'true' and allowed ~= 'false') then return nil, nil end
+
+  return name, allowed == 'true'
+end
+
+--- Each flag that takes exactly one value, with what the value is called and where it goes; a
+--- `set` that can't read the value returns what it takes instead.
+local Values: { [string]: { value: string, set: (Command, tes3merge.Options, string) -> string? } } = {
+  ['--config'] = {
+    value = 'an openmw.cfg or its folder',
+    set = function(command, _, value)
+      command.config = value
+      return nil
+    end,
+  },
+  ['--file-filter'] = {
+    value = '<file>=<true|false>',
+    set = function(_, options, value)
+      local name, allow = filter(value)
+      if not name then return '<file>=<true|false>' end
+
+      local filters: { [string]: boolean } = options.fileFilters or {}
+      filters[name] = allow == true
+      options.fileFilters = filters
+      return nil
+    end,
+  },
+  ['--object-filter'] = {
+    value = '<pattern>=<true|false>',
+    set = function(_, options, value)
+      local pattern, allow = filter(value)
+      if not pattern then return '<pattern>=<true|false>' end
+
+      local filters: { { string | boolean } } = options.objectFilters or {}
+      table.insert(filters, { pattern, allow == true })
+      options.objectFilters = filters
+      return nil
+    end,
+  },
+  ['--encoding'] = {
+    value = 'an encoding',
+    set = function(_, options, value)
+      -- TES3Merge.ini names a code page by its number; the module takes that as a number.
+      options.encoding = if string.match(value, '^%d+$') then tonumber(value) else value
+      return nil
+    end,
+  },
+  ['--output-dir'] = {
+    value = 'a folder',
+    set = function(_, options, value)
+      options.outputDir = value
+      return nil
+    end,
+  },
+  ['--file-name'] = {
+    value = 'a file name',
+    set = function(_, options, value)
+      options.fileName = value
+      return nil
+    end,
+  },
+}
+
+--- TES3Merge's other commands, which the port doesn't have.
+local Unported: { [string]: boolean } = { multipatch = true, verify = true }
+
+local function isFlag(argument: string): boolean return string.sub(argument, 1, 1) == '-' end
+
+local function parse(argv: { string }): (Command?, string?)
+  local options: tes3merge.Options = {}
+  local command: Command = { action = 'merge' :: 'merge', options = options }
+  local help = false
+  local index = 1
+
+  while index <= #argv do
+    local argument = argv[index]
+    local list, switch, single = Lists[argument], Switches[argument], Values[argument]
+
+    if argument == '--help' or argument == '-h' then
+      help = true
+    elseif list then
+      local values: { string } = {}
+      while argv[index + 1] and not isFlag(argv[index + 1]) do
+        index += 1
+        table.insert(values, argv[index])
+      end
+
+      if #values == 0 then return nil, `{argument} requires {list.value}` end
+
+      list.add(options, values)
+    elseif switch then
+      switch(options)
+    elseif single then
+      local value = argv[index + 1]
+      if not value then return nil, `{argument} requires {single.value}` end
+
+      local expected = single.set(command, options, value)
+      if expected then return nil, `{argument} takes {expected}, not '{value}'` end
+
+      index += 1
+    elseif isFlag(argument) then
+      return nil, `unknown option '{argument}'`
+    elseif index == 1 and Unported[argument] then
+      return nil, `the {argument} command isn't ported: tes3merge only merges`
+    else
+      return nil, `unexpected argument '{argument}'`
+    end
+
+    index += 1
+  end
+
+  if help then return { action = 'help' :: 'help' }, nil end
+
+  return command, nil
+end
+
+--- The openmw.cfg `given` names, or the one OPENMW_CONFIG does: a file, or a folder holding one
+--- under any capitalization. Nil and why when neither names one.
+local function configuration(given: string?): (string?, string?)
+  local selected = given
+  if not selected then
+    -- `process.env` throws in a runtime without the process.environment capability. A caller
+    -- there can only name the configuration with --config, so the variable counts as unset.
+    local readable, value = pcall(process.env, 'OPENMW_CONFIG')
+    if readable then selected = value end
+  end
+
+  if not selected or selected == '' then
+    return nil,
+      'an OpenMW configuration is required: pass --config <openmw.cfg or its folder> or set OPENMW_CONFIG'
+  end
+
+  local info, message, kind = fs.stat(selected)
+  if not info and kind ~= 'notFound' and message then
+    return nil, `can't read the configuration '{selected}': {message}`
+  end
+
+  if info and info.isFile then return selected, nil end
+
+  if not info or not info.isDir then
+    return nil, `the configuration '{selected}' isn't a file or a folder`
+  end
+
+  local names, listProblem = fs.list(selected)
+  if not names then return nil, `can't list the configuration folder '{selected}': {listProblem}` end
+
+  for _, name in names do
+    if string.lower(name) == 'openmw.cfg' then return jess.fs.join(selected, name), nil end
+  end
+
+  return nil, `the folder '{selected}' has no openmw.cfg`
+end
+
+--- What a raised error says: the merge's own refusals as it words them, without the script
+--- position Luau puts in front, and anything else whole.
+local function reason(problem: unknown): string
+  local text = tostring(problem)
+  if string.sub(text, 1, #'tes3merge: ') == 'tes3merge: ' then return text end
+
+  return string.match(text, '^.-:%d+: (tes3merge: .*)$') or `tes3merge: {text}`
+end
+
+local function run(argv: { string }): number
+  local command, message = parse(argv)
+
+  if not command then return usage(message :: string) end
+
+  if command.action == 'help' then
+    out(Usage)
+    return Exit.ok
+  end
+
+  local path, missing = configuration(command.config)
+
+  if not path then return usage(missing :: string) end
+
+  local state: { [string]: unknown } = { tes3merge = command.options }
+
+  -- The configuration raises when it can't be read, and the merge raises where TES3Merge stops:
+  -- options it can't use, nowhere to write, a file it can't write.
+  local merged, problem = pcall(function() tes3merge(state, openmw.new(path)) end)
+
+  if not merged then
+    err(reason(problem))
+    return Exit.runtime
+  end
+
+  local report = (command.options :: tes3merge.Options).report
+
+  for _, failure in if report then report.failed else {} do
+    err(`tes3merge: {failure}`)
+  end
+
+  return Exit.ok
+end
+
+return table.freeze { Exit = Exit, parse = parse, run = run }

@@ -66,7 +66,7 @@ type Cell = {
   atmosphereData: { fogDensity: number }?,
 }
 
-type Report = {
+export type Report = {
   path: string?,
   masters: { string },
   files: number,
@@ -76,7 +76,7 @@ type Report = {
   activated: boolean?,
 }
 
-type Options = {
+export type Options = {
   recordTypes: { string }?,
   records: { string }?,
   ignoreRecords: { string }?,
