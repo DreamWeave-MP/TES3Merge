@@ -28,6 +28,13 @@ local Refused: { { argv: { string }, message: string } } = {
   { argv = { '-i:yes' }, message = '-i takes no value, not \'yes\'' },
   { argv = { '--no-masters=' }, message = '--no-masters takes no value, not \'\'' },
   { argv = { '--help=me' }, message = '--help takes no value, not \'me\'' },
+  { argv = { '-?:me' }, message = '-? takes no value, not \'me\'' },
+  { argv = { '--version=1' }, message = '--version takes no value, not \'1\'' },
+  { argv = { '-v' }, message = 'unknown option \'-v\'' },
+  { argv = { '-V' }, message = 'unknown option \'-V\'' },
+  { argv = { '--Version' }, message = 'unknown option \'--Version\'' },
+  { argv = { 'version' }, message = 'unexpected argument \'version\'' },
+  { argv = { '--version', '--bogus' }, message = 'unknown option \'--bogus\'' },
   { argv = { '--records=' }, message = '--records requires a record type' },
   { argv = { '--ir:', '--verbose' }, message = '--ir requires a record type' },
   {
@@ -376,10 +383,28 @@ suite.describe('parse', function()
     }
   end)
 
-  suite.it('reads help under either spelling, wherever it is', function()
-    for _, argv in { { '--help' }, { '-h' }, { '--verbose', '--help' }, { '-h', '--config', 'cfg' } } do
+  suite.it('reads help under each of its spellings, wherever it is', function()
+    local spellings = {
+      { '--help' },
+      { '-h' },
+      { '-?' },
+      { '--verbose', '--help' },
+      { '-h', '--config', 'cfg' },
+      { '-r', 'NPC_', '-?' },
+      { '--version', '--help' },
+    }
+
+    for _, argv in spellings do
       local command, message = cli.parse(argv)
       expect(command).toEqual { action = 'help' }
+      expect(message).toBeNil()
+    end
+  end)
+
+  suite.it('reads --version, wherever it is', function()
+    for _, argv in { { '--version' }, { '--verbose', '--version' }, { '--version', '-p', 'none' } } do
+      local command, message = cli.parse(argv)
+      expect(command).toEqual { action = 'version' }
       expect(message).toBeNil()
     end
   end)
@@ -411,6 +436,15 @@ suite.describe('run', function()
   suite.it('returns 0 for help', function()
     expect(cli.run { '--help' }).toBe(0)
     expect(cli.run { '-h' }).toBe(0)
+    expect(cli.run { '-?' }).toBe(0)
+  end)
+
+  suite.it('returns 0 for --version, whose line names the port and the package\'s version', function()
+    expect(cli.run { '--version' }).toBe(0)
+
+    -- One line: the command's name, the version the manifest gives the package, what it is.
+    local line = '^tes3merge %d+%.%d+%.%d+, a Jess port of TES3Merge\'s object merging$'
+    expect(string.match(cli.version, line)).toBe(cli.version)
   end)
 
   suite.it('returns 8 for every command line parse refuses', function()

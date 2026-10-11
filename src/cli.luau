@@ -5,9 +5,11 @@
 
   run(argv) -> exit status
   parse(argv) -> (command, nil) | (nil, message)
+  version: the line `--version` prints
 
   tes3merge [--config <openmw.cfg or its folder>] [options]
-  tes3merge --help
+  tes3merge --help, -h, -?
+  tes3merge --version
 
 A run is @tes3merge over the configuration `--config` names, else the one `OPENMW_CONFIG` names:
 each a file, or a folder holding an openmw.cfg. Every option is one of that module's, under the
@@ -19,10 +21,10 @@ The merge prints what it did itself. Afterwards each entry of its report's `fail
 that couldn't be read, a record that couldn't be merged) goes to standard error; those don't
 fail the run, as they don't fail the merge.
 
-Exit statuses: 0 when the merge ran, 8 when the command line can't be used (an unknown option, a
-missing or misspelled value, an argument that isn't an option, a command the port doesn't have,
-no configuration, a configuration that isn't there), 9 when the merge raised. Messages go to
-standard error as `tes3merge: <message>`.
+Exit statuses: 0 when the merge ran, or help or the version was asked for; 8 when the command
+line can't be used (an unknown option, a missing or misspelled value, an argument that isn't an
+option, a command the port doesn't have, no configuration, a configuration that isn't there); 9
+when the merge raised. Messages go to standard error as `tes3merge: <message>`.
 ]]
 
 local fs = require '@dream/fs'
@@ -31,7 +33,7 @@ local process = require '@dream/process'
 local tes3merge = require '@tes3merge'
 
 export type Command = {
-  action: 'merge' | 'help',
+  action: 'merge' | 'help' | 'version',
   config: string?,
   options: tes3merge.Options?,
 }
@@ -42,7 +44,8 @@ local Usage = [[
 tes3merge: TES3Merge's object merging, over an OpenMW load order
 
   tes3merge [--config <openmw.cfg or its folder>] [options]
-  tes3merge --help
+  tes3merge --help, -h, -?
+  tes3merge --version
 
 Reads the configuration's content files, merges each record three or more of them define, applies
 the patches, and writes "Merged Objects.esp" into the configuration's data-local folder, else its
@@ -205,6 +208,26 @@ local Aliases: { [string]: string } = {
   ['-p'] = '--patches',
 }
 
+--- The flags that answer instead of merging, as TES3Merge's command line has them, and the action
+--- each asks for.
+local Asides: { [string]: 'help' | 'version' } = {
+  ['--help'] = 'help',
+  ['-h'] = 'help',
+  ['-?'] = 'help',
+  ['--version'] = 'version',
+}
+
+--- What `--version` prints. TES3Merge's own line isn't known here: its flags were read out of
+--- its option table, and the program was never run. So this names the port, in the port's words.
+local function versionLine(): string
+  -- The kernel names a package's modules `<id>@<version>/<path>`.
+  local version = string.match(debug.info(1, 's'), '@([^@/]+)/')
+  local name = if version then `tes3merge {version}` else 'tes3merge'
+  return `{name}, a Jess port of TES3Merge's object merging`
+end
+
+local Version = versionLine()
+
 --- TES3Merge's other commands, which the port doesn't have.
 local Unported: { [string]: boolean } = { multipatch = true, verify = true }
 
@@ -224,7 +247,7 @@ end
 local function parse(argv: { string }): (Command?, string?)
   local options: tes3merge.Options = {}
   local command: Command = { action = 'merge' :: 'merge', options = options }
-  local help = false
+  local help, version = false, false
   local index = 1
 
   while index <= #argv do
@@ -236,14 +259,16 @@ local function parse(argv: { string }): (Command?, string?)
 
     local flag = Aliases[spelled] or spelled
     local list, switch, single = Lists[flag], Switches[flag], Values[flag]
-    local wantsHelp = flag == '--help' or flag == '-h'
+    local aside = Asides[flag]
 
-    if value and (switch or wantsHelp) then
+    if value and (switch or aside) then
       return nil, `{spelled} takes no value, not '{value}'`
     end
 
-    if wantsHelp then
+    if aside == 'help' then
       help = true
+    elseif aside == 'version' then
+      version = true
     elseif list then
       -- An attached value is the first; the arguments up to the next flag follow it.
       local values: { string } = if value and value ~= '' then { value } else {}
@@ -280,6 +305,8 @@ local function parse(argv: { string }): (Command?, string?)
   end
 
   if help then return { action = 'help' :: 'help' }, nil end
+
+  if version then return { action = 'version' :: 'version' }, nil end
 
   return command, nil
 end
@@ -340,6 +367,11 @@ local function run(argv: { string }): number
     return Exit.ok
   end
 
+  if command.action == 'version' then
+    out(Version)
+    return Exit.ok
+  end
+
   local path, missing = configuration(command.config)
 
   if not path then return usage(missing :: string) end
@@ -364,4 +396,4 @@ local function run(argv: { string }): number
   return Exit.ok
 end
 
-return table.freeze { Exit = Exit, parse = parse, run = run }
+return table.freeze { Exit = Exit, parse = parse, run = run, version = Version }
