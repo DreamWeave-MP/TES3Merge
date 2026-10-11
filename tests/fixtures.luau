@@ -1,0 +1,322 @@
+--!strict
+--!native
+-- What the tes3merge suites share: the load orders the tool's old harness built inline, built here
+-- with @tes3 in a folder under the host's scratch root, and a merge over one that keeps what the
+-- tool printed.
+local fs = require '@dream/fs'
+local openmw = require '@openmw'
+local tes3 = require '@tes3'
+local tes3merge = require '@tes3merge'
+
+export type Fields = { [string]: unknown }
+
+--- A load order in scratch: its folder, its openmw.cfg, its data folder, a `data-local` folder
+--- (in the configuration only when asked for), and a folder outside the data folders.
+export type Order = { root: string, config: string, data: string, dataLocal: string, out: string }
+
+export type OrderOptions = {
+  --- Whether the configuration names `dataLocal` as its `data-local=`.
+  dataLocal: boolean?,
+  --- More configuration lines, each ending in a newline, before the content.
+  lines: string?,
+  --- The code page the plugins' text is written in; Windows-1252 by default.
+  encoding: string?,
+}
+
+--- What a merge left behind: every line the tool printed, each ending in a newline, the state it
+--- was called with, and the Context it ran over.
+export type Run = { printed: string, state: { [string]: unknown }, context: openmw.Context }
+
+local scratch = assert(rawget(_G, 'scratchRoot') :: string?, 'the suite needs a host-owned scratchRoot')
+
+local function io<Value>(value: Value?, message: string?, kind: dream_fs_ErrorKind?): Value
+  if not value then error(message or tostring(kind), 0) end
+
+  return value
+end
+
+-- The tool reports through `print`, and its old harness read that off standard output. A suite
+-- can't, so the tool's function runs in an environment whose `print` keeps the lines instead.
+local printed: { string } = {}
+
+local function keep(...: unknown)
+  local words: { string } = {}
+  for index = 1, select('#', ...) do
+    words[index] = tostring((select(index, ...)))
+  end
+
+  table.insert(printed, table.concat(words, '\t') .. '\n')
+end
+
+setfenv(tes3merge, setmetatable({ print = keep }, { __index = getfenv(tes3merge) }))
+
+--- Writes a plugin holding `records` into the `data` folder: a master when it is `Base.esm`.
+local function plugin(data: string, name: string, records: { Fields }, encoding: string?)
+  local built = tes3.new(if name == 'Base.esm' then 'master' else 'plugin', { encoding = encoding })
+  for _, record in records do
+    built:insertValue(built:count(), record)
+  end
+
+  built:updateRecordCount()
+  jess.fs.write(jess.fs.join(data, name), built:save())
+end
+
+--- A fresh load order named `name`: the plugins `files` names, in `content` order.
+local function order(
+  name: string,
+  files: { [string]: { Fields } },
+  content: { string },
+  options: OrderOptions?
+): Order
+  local given: OrderOptions = options or {}
+  local root = jess.fs.join(scratch, 'tes3merge', name)
+  if fs.exists(root) then io(fs.remove(root, { recursive = true })) end
+
+  local built: Order = {
+    root = root,
+    config = jess.fs.join(root, 'openmw.cfg'),
+    data = jess.fs.join(root, 'data'),
+    dataLocal = jess.fs.join(root, 'local'),
+    out = jess.fs.join(root, 'out'),
+  }
+
+  for _, folder in { built.data, built.dataLocal, built.out } do
+    io(fs.mkdir(folder, { recursive = true }))
+  end
+
+  for file, records in files do
+    plugin(built.data, file, records, given.encoding)
+  end
+
+  local lines = { `data="{built.data}"\n` }
+  if given.dataLocal then table.insert(lines, `data-local="{built.dataLocal}"\n`) end
+
+  table.insert(lines, given.lines or '')
+  for _, file in content do
+    table.insert(lines, `content={file}\n`)
+  end
+
+  io(fs.writeFile(built.config, table.concat(lines)))
+  return built
+end
+
+--- Runs the tool over the load order with `options` as its `state.tes3merge`.
+local function merge(built: Order, options: Fields?): Run
+  local state: { [string]: unknown } = { tes3merge = options }
+  local context = openmw.new(built.config)
+  table.clear(printed)
+  tes3merge(state, context)
+  return { printed = table.concat(printed), state = state, context = context }
+end
+
+--- Every line printed since the last merge began, for a run that didn't go through `merge`.
+local function output(): string return table.concat(printed) end
+
+--- Forgets what was printed, before a run that doesn't go through `merge`.
+local function forget() table.clear(printed) end
+
+--- The plugin at `path`, its text read in `encoding`.
+local function open(path: string, encoding: string?): tes3.Plugin
+  return tes3.open(assert(jess.fs.readBuffer(path)), { encoding = encoding })
+end
+
+--- A file's text.
+local function read(path: string): string return io(fs.readFileString(path)) end
+
+local Three = table.freeze { 'Base.esm', 'A.esp', 'B.esp' }
+
+local function miscItem(id: string, name: string, value: number): Fields
+  return { type = 'MiscItem', id = id, name = name, data = { weight = 1, value = value } }
+end
+
+local function leveledItem(items: { { unknown } }): Fields
+  return { type = 'LeveledItem', id = 'jess_list', chanceNone = 50, items = items }
+end
+
+local function npc(level: number, gold: number): Fields
+  return { type = 'Npc', id = 'jess_npc', name = 'Npc', data = { level = level, gold = gold } }
+end
+
+--- One object of several types, each changed differently by two plugins over a master.
+local Objects: { [string]: { Fields } } = {
+  ['Base.esm'] = {
+    miscItem('jess_gem', 'Gem', 10),
+    leveledItem { { 'jess_gem', 1 }, { 'jess_old', 1 } },
+    npc(5, 0),
+    { type = 'Static', id = 'jess_rock', mesh = 'a.nif' },
+  },
+  ['A.esp'] = {
+    miscItem('jess_gem', 'Shiny Gem', 10),
+    leveledItem { { 'jess_gem', 1 }, { 'jess_new', 1 } },
+    npc(10, 0),
+    { type = 'Static', id = 'jess_rock', mesh = 'b.nif' },
+    { type = 'Activator', id = 'jess_single', name = 'Only Here' },
+    { type = 'Creature', id = 'atronach_flame_summon', name = 'Flame Atronach' },
+  },
+  ['B.esp'] = {
+    miscItem('jess_gem', 'Gem', 20),
+    leveledItem { { 'jess_gem', 1 }, { 'jess_old', 1 }, { 'jess_extra', 1 } },
+    npc(5, 99),
+    { type = 'Static', id = 'jess_rock', mesh = 'c.nif' },
+  },
+}
+
+local function exterior(name: string): Fields
+  return { type = 'Cell', name = name, data = { flags = '', grid = { 3, -2 } } }
+end
+
+--- An exterior cell one plugin renames and a later one doesn't, a fogbugged interior, and items
+--- for the filters to leave out.
+local Cells: { [string]: { Fields } } = {
+  ['Base.esm'] = { exterior '', miscItem('ttm_gem', 'Gem', 1), miscItem('jess_kept', 'Kept', 1) },
+  ['A.esp'] = {
+    exterior 'My City',
+    miscItem('ttm_gem', 'Gem', 1),
+    miscItem('jess_kept', 'Kept', 2),
+    {
+      type = 'Cell',
+      name = 'Jess Room',
+      data = { flags = 'IS_INTERIOR', grid = { 0, 0 } },
+      atmosphereData = {
+        ambientColor = { 0, 0, 0, 0 },
+        sunlightColor = { 0, 0, 0, 0 },
+        fogColor = { 0, 0, 0, 0 },
+        fogDensity = 0,
+      },
+    },
+  },
+  ['B.esp'] = { exterior '', miscItem('ttm_gem', 'Gem', 3), miscItem('jess_kept', 'Kept', 1) },
+  ['Ignored.esp'] = { exterior 'Elsewhere', miscItem('jess_kept', 'Kept', 9) },
+}
+
+--- One item with a Cyrillic id and name, for plugins written in Windows-1251.
+local Cyrillic: { [string]: { Fields } } = {
+  ['Base.esm'] = { miscItem('jess_меч', 'Меч', 1) },
+  ['A.esp'] = { miscItem('jess_меч', 'Острый меч', 1) },
+  ['B.esp'] = { miscItem('jess_меч', 'Меч', 5) },
+}
+
+local function book(id: string, weight: number, value: number, text: string): Fields
+  return {
+    type = 'Book',
+    id = id,
+    name = 'Note',
+    text = text,
+    data = { weight = weight, value = value },
+  }
+end
+
+local function shield(description: string, baseCost: number): Fields
+  return {
+    type = 'MagicEffect',
+    effectId = 'Shield',
+    description = description,
+    data = { baseCost = baseCost },
+  }
+end
+
+--- Free text with and without its terminator.
+local Text: { [string]: { Fields } } = {
+  ['Base.esm'] = {
+    book('jess_bare', 1, 1, 'Page'),
+    book('jess_nul', 1, 1, 'Page\0'),
+    shield('Old', 1),
+  },
+  ['A.esp'] = {
+    book('jess_bare', 2, 1, 'Page'),
+    book('jess_nul', 2, 1, 'Page\0'),
+    shield('New', 1),
+  },
+  ['B.esp'] = {
+    book('jess_bare', 1, 5, 'Page'),
+    book('jess_nul', 1, 5, 'Page\0'),
+    shield('Old', 7),
+  },
+}
+
+local function feather(bolt: string, cast: string, hit: string): Fields
+  return {
+    type = 'MagicEffect',
+    effectId = 'Feather',
+    boltSound = bolt,
+    castSound = cast,
+    hitSound = hit,
+  }
+end
+
+--- A magic effect whose middle plugin leaves one sound out.
+local Removed: { [string]: { Fields } } = {
+  ['Base.esm'] = { feather('bolt', 'cast', 'hit') },
+  ['A.esp'] = { feather('', 'cast', 'new hit') },
+  ['B.esp'] = { feather('bolt', 'new cast', 'hit') },
+}
+
+local function creature(id: string, name: string, script: string): Fields
+  return { type = 'Creature', id = id, name = name, script = script }
+end
+
+--- Two summons: one that three plugins define, one that two do.
+local Patched: { [string]: { Fields } } = {
+  ['Base.esm'] = {
+    creature('atronach_frost_summon', 'Frost', ''),
+    creature('scamp_summon', 'Scamp', ''),
+  },
+  ['A.esp'] = { creature('atronach_frost_summon', 'Frost Atronach', '') },
+  ['B.esp'] = {
+    creature('atronach_frost_summon', 'Frost', 'jess_script'),
+    creature('scamp_summon', 'Scamp', 'jess_script'),
+  },
+}
+
+local function lever(name: string, mesh: string): Fields
+  return { type = 'Activator', id = 'jess_lever', name = name, mesh = mesh }
+end
+
+--- An activator has no nested fields, so a plugin that leaves it alone changes nothing at all.
+local Masters: { [string]: { Fields } } = {
+  ['Base.esm'] = { lever('Lever', 'a.nif') },
+  ['A.esp'] = { lever('Lever', 'a.nif') },
+  ['C.esp'] = { lever('Old Lever', 'a.nif') },
+  ['B.esp'] = { lever('Lever', 'b.nif') },
+}
+
+local function namedBook(id: string, name: string, value: number): Fields
+  return { type = 'Book', id = id, name = name, data = { weight = 1, value = value } }
+end
+
+--- Two types and three ids, which the last plugin lists in another order.
+local Sequence: { [string]: { Fields } } = {
+  ['Base.esm'] = {
+    miscItem('jess_a', 'A', 1),
+    namedBook('jess_b', 'B', 1),
+    miscItem('jess_c', 'C', 1),
+  },
+  ['A.esp'] = {
+    miscItem('jess_a', 'New A', 1),
+    namedBook('jess_b', 'New B', 1),
+    miscItem('jess_c', 'New C', 1),
+  },
+  ['B.esp'] = {
+    miscItem('jess_c', 'C', 5),
+    namedBook('jess_b', 'B', 5),
+    miscItem('jess_a', 'A', 5),
+  },
+}
+
+return table.freeze {
+  Cells = Cells,
+  Cyrillic = Cyrillic,
+  Masters = Masters,
+  Objects = Objects,
+  Patched = Patched,
+  Removed = Removed,
+  Sequence = Sequence,
+  Text = Text,
+  Three = Three,
+  forget = forget,
+  merge = merge,
+  open = open,
+  order = order,
+  output = output,
+  read = read,
+}
