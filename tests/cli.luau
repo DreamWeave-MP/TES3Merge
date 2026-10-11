@@ -21,8 +21,27 @@ local Refused: { { argv: { string }, message: string } } = {
   { argv = { '-I' }, message = 'unknown option \'-I\'' },
   { argv = { '--i' }, message = 'unknown option \'--i\'' },
   { argv = { '-ir' }, message = 'unknown option \'-ir\'' },
-  { argv = { '--inclusive=true' }, message = 'unknown option \'--inclusive=true\'' },
-  { argv = { '--records=NPC_' }, message = 'unknown option \'--records=NPC_\'' },
+  { argv = { '--bogus=1' }, message = 'unknown option \'--bogus=1\'' },
+  { argv = { '--record:NPC_' }, message = 'unknown option \'--record:NPC_\'' },
+  { argv = { '=NPC_' }, message = 'unexpected argument \'=NPC_\'' },
+  { argv = { '--inclusive=true' }, message = '--inclusive takes no value, not \'true\'' },
+  { argv = { '-i:yes' }, message = '-i takes no value, not \'yes\'' },
+  { argv = { '--no-masters=' }, message = '--no-masters takes no value, not \'\'' },
+  { argv = { '--help=me' }, message = '--help takes no value, not \'me\'' },
+  { argv = { '--records=' }, message = '--records requires a record type' },
+  { argv = { '--ir:', '--verbose' }, message = '--ir requires a record type' },
+  {
+    argv = { '--file-filter=A.esp' },
+    message = '--file-filter takes <file>=<true|false>, not \'A.esp\'',
+  },
+  {
+    argv = { '--object-filter:^ttm_' },
+    message = '--object-filter takes <pattern>=<true|false>, not \'^ttm_\'',
+  },
+  {
+    argv = { '--file-filter=' },
+    message = '--file-filter takes <file>=<true|false>, not \'\'',
+  },
   { argv = { '--nomasters' }, message = 'unknown option \'--nomasters\'' },
   { argv = { '--' }, message = 'unknown option \'--\'' },
   { argv = { '--records' }, message = '--records requires a record type' },
@@ -267,6 +286,72 @@ suite.describe('parse', function()
       options = {
         objectFilters = { { '^ttm_', false }, { '^ttm_(a|b)=c$', true } },
         fileFilters = { ['A.esp'] = true, ['Name=With=Equals.esp'] = true },
+      },
+    }
+  end)
+
+  suite.it('takes a first value attached to its flag with = or :', function()
+    expect(parsed { '--records=NPC_' }).toEqual { action = 'merge', options = { records = { 'NPC_' } } }
+    expect(parsed { '--records:NPC_', 'CREA', '-r=LEVI' }).toEqual {
+      action = 'merge',
+      options = { records = { 'NPC_', 'CREA', 'LEVI' } },
+    }
+
+    expect(parsed { '--ir=STAT', '-p:none', '--ignore-records:MISC', '--patches=fogbug', 'summons' }).toEqual {
+      action = 'merge',
+      options = { ignoreRecords = { 'STAT', 'MISC' }, patches = { 'none', 'fogbug', 'summons' } },
+    }
+
+    -- Nothing attached leaves the values to the arguments that follow.
+    expect(parsed { '--record-types=', 'MISC', 'BOOK' }).toEqual {
+      action = 'merge',
+      options = { recordTypes = { 'MISC', 'BOOK' } },
+    }
+
+    expect(parsed { '--config=cfg', '--encoding:1251', '--output-dir=out', '--file-name:Merged.esp' }).toEqual {
+      action = 'merge',
+      config = 'cfg',
+      options = { encoding = 1251, outputDir = 'out', fileName = 'Merged.esp' },
+    }
+
+    -- An attached value is the flag's one value: what follows is read on its own.
+    expect(parsed { '--output-dir=out', '--verbose' }).toEqual {
+      action = 'merge',
+      options = { outputDir = 'out', verbose = true },
+    }
+
+    expect(parsed { '--config=' }).toEqual { action = 'merge', config = '', options = {} }
+  end)
+
+  suite.it('splits an attached value off at the first = or : and keeps the rest as it is', function()
+    expect(parsed { '--file-filter=Foo.esp=false' }).toEqual {
+      action = 'merge',
+      options = { fileFilters = { ['Foo.esp'] = false } },
+    }
+
+    expect(parsed { '--file-filter:Foo.esp=false', '--file-filter=A=B.esp=true' }).toEqual {
+      action = 'merge',
+      options = { fileFilters = { ['Foo.esp'] = false, ['A=B.esp'] = true } },
+    }
+
+    expect(parsed { '--object-filter=^ttm_=false', '--object-filter:^a:b=c$=true' }).toEqual {
+      action = 'merge',
+      options = { objectFilters = { { '^ttm_', false }, { '^a:b=c$', true } } },
+    }
+
+    expect(parsed { '--config=C:\\Games\\openmw.cfg', '--output-dir:/mnt/a:b=c' }).toEqual {
+      action = 'merge',
+      config = 'C:\\Games\\openmw.cfg',
+      options = { outputDir = '/mnt/a:b=c' },
+    }
+
+    -- A value given as its own argument is never split.
+    expect(parsed { '--output-dir', 'a=b:c', '--object-filter', 'x:y=false', '--records', 'A:B' }).toEqual {
+      action = 'merge',
+      options = {
+        outputDir = 'a=b:c',
+        objectFilters = { { 'x:y', false } },
+        records = { 'A:B' },
       },
     }
   end)

@@ -78,8 +78,9 @@ The port's own:
   --verbose                   print each merged record
 
 A flag that takes several values takes every argument up to the next flag, and adds to what an
-earlier use of it gave; --file-filter and --object-filter take one each and are repeated. The
-multipatch and verify commands aren't ported.
+earlier use of it gave; --file-filter and --object-filter take one each and are repeated. A
+flag's first value can be attached to it with = or : instead (--records=NPC_, --patches:none,
+--file-filter=Foo.esp=false). The multipatch and verify commands aren't ported.
 
 Exit status: 0 done, 8 the command line can't be used, 9 the merge failed.]]
 
@@ -209,6 +210,17 @@ local Unported: { [string]: boolean } = { multipatch = true, verify = true }
 
 local function isFlag(argument: string): boolean return string.sub(argument, 1, 1) == '-' end
 
+--- A flag as it is spelled, and the value attached to it with `=` or `:`, if one is.
+--- System.CommandLine, which TES3Merge's command line is built on, documents `--option=value` and
+--- `--option:value` as `--option value`. The split is at the first of either, and what follows
+--- is the value as it is, so a filter keeps its own `=`.
+local function attached(argument: string): (string, string?)
+  local spelled, value = string.match(argument, '^([^=:]+)[=:](.*)$')
+  if not spelled then return argument, nil end
+
+  return spelled, value
+end
+
 local function parse(argv: { string }): (Command?, string?)
   local options: tes3merge.Options = {}
   local command: Command = { action = 'merge' :: 'merge', options = options }
@@ -217,31 +229,45 @@ local function parse(argv: { string }): (Command?, string?)
 
   while index <= #argv do
     local argument = argv[index]
-    local flag = Aliases[argument] or argument
-    local list, switch, single = Lists[flag], Switches[flag], Values[flag]
+    local spelled: string, value: string? = argument, nil
+    if isFlag(argument) then
+      spelled, value = attached(argument)
+    end
 
-    if argument == '--help' or argument == '-h' then
+    local flag = Aliases[spelled] or spelled
+    local list, switch, single = Lists[flag], Switches[flag], Values[flag]
+    local wantsHelp = flag == '--help' or flag == '-h'
+
+    if value and (switch or wantsHelp) then
+      return nil, `{spelled} takes no value, not '{value}'`
+    end
+
+    if wantsHelp then
       help = true
     elseif list then
-      local values: { string } = {}
+      -- An attached value is the first; the arguments up to the next flag follow it.
+      local values: { string } = if value and value ~= '' then { value } else {}
       while argv[index + 1] and not isFlag(argv[index + 1]) do
         index += 1
         table.insert(values, argv[index])
       end
 
-      if #values == 0 then return nil, `{argument} requires {list.value}` end
+      if #values == 0 then return nil, `{spelled} requires {list.value}` end
 
       list.add(options, values)
     elseif switch then
       switch(options)
     elseif single then
-      local value = argv[index + 1]
-      if not value then return nil, `{argument} requires {single.value}` end
+      local given = value
+      if not given then
+        index += 1
+        given = argv[index]
+      end
 
-      local expected = single.set(command, options, value)
-      if expected then return nil, `{argument} takes {expected}, not '{value}'` end
+      if not given then return nil, `{spelled} requires {single.value}` end
 
-      index += 1
+      local expected = single.set(command, options, given)
+      if expected then return nil, `{spelled} takes {expected}, not '{given}'` end
     elseif isFlag(argument) then
       return nil, `unknown option '{argument}'`
     elseif index == 1 and Unported[argument] then
