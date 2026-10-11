@@ -50,11 +50,12 @@ first data folder. The configuration is the one --config names, else the one OPE
 there is no default.
 
 TES3Merge's options:
-  --records <type>...         merge only these record types, by tag (NPC_ LEVI)
-  --ignore-records <type>...  never merge these record types
-  --inclusive                 merge NPC, creature, and container inventories as a union
+  -r, --records <type>...     merge only these record types, by tag (NPC_ LEVI)
+  --ir, --ignore-records <type>...
+                              never merge these record types
+  -i, --inclusive             merge NPC, creature, and container inventories as a union
   --no-masters                write the merged plugin without a master list
-  --patches <name>...         the patches to apply: fogbug, summons, cellnames, all (the
+  -p, --patches <name>...     the patches to apply: fogbug, summons, cellnames, all (the
                               default), or none
 
 TES3Merge.ini isn't read. Its settings are options:
@@ -195,6 +196,14 @@ local Values: { [string]: { value: string, set: (Command, tes3merge.Options, str
   },
 }
 
+--- TES3Merge's other spellings of its flags, each the same flag as the long form it stands for.
+local Aliases: { [string]: string } = {
+  ['-i'] = '--inclusive',
+  ['-r'] = '--records',
+  ['--ir'] = '--ignore-records',
+  ['-p'] = '--patches',
+}
+
 --- TES3Merge's other commands, which the port doesn't have.
 local Unported: { [string]: boolean } = { multipatch = true, verify = true }
 
@@ -208,7 +217,8 @@ local function parse(argv: { string }): (Command?, string?)
 
   while index <= #argv do
     local argument = argv[index]
-    local list, switch, single = Lists[argument], Switches[argument], Values[argument]
+    local flag = Aliases[argument] or argument
+    local list, switch, single = Lists[flag], Switches[flag], Values[flag]
 
     if argument == '--help' or argument == '-h' then
       help = true

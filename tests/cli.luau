@@ -17,14 +17,19 @@ local Merged = 'Merged Objects.esp'
 local Refused: { { argv: { string }, message: string } } = {
   { argv = { '--bogus' }, message = 'unknown option \'--bogus\'' },
   { argv = { '--Inclusive' }, message = 'unknown option \'--Inclusive\'' },
-  { argv = { '-i' }, message = 'unknown option \'-i\'' },
+  { argv = { '-n' }, message = 'unknown option \'-n\'' },
+  { argv = { '-I' }, message = 'unknown option \'-I\'' },
+  { argv = { '--i' }, message = 'unknown option \'--i\'' },
+  { argv = { '-ir' }, message = 'unknown option \'-ir\'' },
   { argv = { '--inclusive=true' }, message = 'unknown option \'--inclusive=true\'' },
   { argv = { '--records=NPC_' }, message = 'unknown option \'--records=NPC_\'' },
   { argv = { '--nomasters' }, message = 'unknown option \'--nomasters\'' },
   { argv = { '--' }, message = 'unknown option \'--\'' },
   { argv = { '--records' }, message = '--records requires a record type' },
   { argv = { '--records', '--inclusive' }, message = '--records requires a record type' },
+  { argv = { '-r' }, message = '-r requires a record type' },
   { argv = { '--ignore-records' }, message = '--ignore-records requires a record type' },
+  { argv = { '--ir', '-i' }, message = '--ir requires a record type' },
   { argv = { '--record-types' }, message = '--record-types requires a record type' },
   { argv = { '--patches' }, message = '--patches requires a patch name' },
   { argv = { '--patches', '--no-masters' }, message = '--patches requires a patch name' },
@@ -102,6 +107,32 @@ suite.describe('parse', function()
         options = { patches = { name } },
       }
     end
+  end)
+
+  suite.it('takes TES3Merge\'s other spellings as the same flags', function()
+    expect(parsed { '-i' }).toEqual { action = 'merge', options = { inclusive = true } }
+    expect(parsed { '-r', 'NPC_', 'CREA' }).toEqual {
+      action = 'merge',
+      options = { records = { 'NPC_', 'CREA' } },
+    }
+
+    expect(parsed { '--ir', 'STAT' }).toEqual {
+      action = 'merge',
+      options = { ignoreRecords = { 'STAT' } },
+    }
+
+    expect(parsed { '-p', 'fogbug' }).toEqual { action = 'merge', options = { patches = { 'fogbug' } } }
+
+    -- A flag repeated under another spelling adds to what the first gave.
+    expect(parsed { '-r', 'NPC_', '--records', 'CREA', '-i', '-r', 'LEVI', '--inclusive' }).toEqual {
+      action = 'merge',
+      options = { records = { 'NPC_', 'CREA', 'LEVI' }, inclusive = true },
+    }
+
+    expect(parsed { '--ignore-records', 'STAT', '--ir', 'MISC', '-p', 'none', '--patches', 'all' }).toEqual {
+      action = 'merge',
+      options = { ignoreRecords = { 'STAT', 'MISC' }, patches = { 'none', 'all' } },
+    }
   end)
 
   suite.it('maps each TES3Merge.ini setting\'s flag onto its option', function()
