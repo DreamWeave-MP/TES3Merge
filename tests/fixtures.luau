@@ -117,7 +117,7 @@ local function forget() table.clear(printed) end
 
 --- The plugin at `path`, its text read in `encoding`.
 local function open(path: string, encoding: string?): tes3.Plugin
-  return tes3.open(assert(jess.fs.readBuffer(path)), { encoding = encoding })
+  return tes3.open(io(fs.readFile(path)), { encoding = encoding })
 end
 
 --- A file's text.
