@@ -58,8 +58,8 @@ TES3Merge's options:
                               never merge these record types
   -i, --inclusive             merge NPC, creature, and container inventories as a union
   --no-masters                write the merged plugin without a master list
-  -p, --patches <name>...     the patches to apply: fogbug, summons, cellnames, all (the
-                              default), or none
+  -p, --patches [<name>...]   the patches to apply: fogbug, summons, cellnames, all, or none;
+                              all when no name follows, and when the flag isn't given
 
 TES3Merge.ini isn't read. Its settings are options:
   --record-types <type>...    [RecordTypes]: the record types to consider, in place of
@@ -102,9 +102,11 @@ local function extend(list: { string }?, values: { string }): { string }
   return extended
 end
 
---- Each flag that takes one or more values, with what one of its values is called and where
---- they go.
-local Lists: { [string]: { value: string, add: (tes3merge.Options, { string }) -> () } } = {
+--- A flag that takes one or more values: what one of its values is called, where they go, and,
+--- for a flag that can be given without any, what it then stands for.
+type List = { value: string, empty: { string }?, add: (tes3merge.Options, { string }) -> () }
+
+local Lists: { [string]: List } = {
   ['--records'] = {
     value = 'a record type',
     add = function(options, values) options.records = extend(options.records, values) end,
@@ -121,6 +123,9 @@ local Lists: { [string]: { value: string, add: (tes3merge.Options, { string }) -
   },
   ['--patches'] = {
     value = 'a patch name',
+    -- TES3Merge's own help: "If left empty, all patches are applied." The module reads an empty
+    -- list as no patches, so the flag alone asks for `all` by name.
+    empty = { 'all' },
     add = function(options, values) options.patches = extend(options.patches, values) end,
   },
 }
@@ -277,9 +282,10 @@ local function parse(argv: { string }): (Command?, string?)
         table.insert(values, argv[index])
       end
 
-      if #values == 0 then return nil, `{spelled} requires {list.value}` end
+      local alone = list.empty
+      if #values == 0 and not alone then return nil, `{spelled} requires {list.value}` end
 
-      list.add(options, values)
+      list.add(options, if #values == 0 and alone then alone else values)
     elseif switch then
       switch(options)
     elseif single then

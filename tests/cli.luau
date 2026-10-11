@@ -57,8 +57,6 @@ local Refused: { { argv: { string }, message: string } } = {
   { argv = { '--ignore-records' }, message = '--ignore-records requires a record type' },
   { argv = { '--ir', '-i' }, message = '--ir requires a record type' },
   { argv = { '--record-types' }, message = '--record-types requires a record type' },
-  { argv = { '--patches' }, message = '--patches requires a patch name' },
-  { argv = { '--patches', '--no-masters' }, message = '--patches requires a patch name' },
   { argv = { '--config' }, message = '--config requires an openmw.cfg or its folder' },
   { argv = { '--encoding' }, message = '--encoding requires an encoding' },
   { argv = { '--output-dir' }, message = '--output-dir requires a folder' },
@@ -272,6 +270,37 @@ suite.describe('parse', function()
       action = 'merge',
       options = { ignoreRecords = { 'stat', 'no such type' } },
     }
+  end)
+
+  suite.it('reads --patches without a name as all, as TES3Merge does', function()
+    local all = { action = 'merge', options = { patches = { 'all' } } }
+    expect(parsed { '--patches' }).toEqual(all)
+    expect(parsed { '-p' }).toEqual(all)
+    expect(parsed { '--patches=' }).toEqual(all)
+    expect(parsed { '-p:' }).toEqual(all)
+
+    -- The next flag ends it as the end of the command line does.
+    expect(parsed { '--patches', '--no-masters' }).toEqual {
+      action = 'merge',
+      options = { patches = { 'all' }, noMasters = true },
+    }
+
+    -- It adds to an earlier use like any other, and `all` applies every patch whatever is with it.
+    expect(parsed { '--patches', 'none', '-p' }).toEqual {
+      action = 'merge',
+      options = { patches = { 'none', 'all' } },
+    }
+
+    -- Each parse gets a list of its own.
+    local first, second = assert(parsed { '-p' }), assert(parsed { '-p' })
+    expect(assert(first.options).patches ~= assert(second.options).patches).toBe(true)
+
+    -- Only --patches can stand alone.
+    for _, flag in { '--records', '-r', '--ignore-records', '--ir', '--record-types' } do
+      local command, message = cli.parse { flag }
+      expect(command).toBeNil()
+      expect(message).toBe(`{flag} requires a record type`)
+    end
   end)
 
   suite.it('keeps filters in order, splitting each at its last =', function()
