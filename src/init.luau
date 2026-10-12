@@ -59,6 +59,9 @@ type Set = { [string]: boolean }
 type Merger = (current: Table, first: Table, later: Table, key: string) -> boolean
 type Definition = { file: string, plugin: tes3.Plugin, index: number }
 
+-- An object filter, read once: what selects the ids it names, and whether it keeps them.
+type ObjectFilter = { selector: tes3cmd.Selector, allow: boolean }
+
 -- What the tool reads of a record before it merges it, as `plugin:decode` gives them.
 type Creature = { id: string, flags: string }
 type Cell = {
@@ -720,7 +723,6 @@ return function(state: { [string]: unknown }?, openmw: Context?)
   -- appears: TES3Merge's dictionaries iterate in insertion order, and its output follows them.
   local groups: { [string]: { Definition } }, groupOrder: { [string]: { string } } = {}, {}
   local typeOrder: { string } = {}
-  local objectFilters: { { string | boolean } } = options.objectFilters or {}
 
   -- Skills, magic effects, and exterior cells are identified by index or grid, not by id.
   local function identity(plugin: tes3.Plugin, index: number, tag: string): string?
@@ -737,45 +739,34 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return `#{tostring(data.grid[1])},{tostring(data.grid[2])}`
   end
 
-  -- A filter without a pattern matches nothing.
-  local selectors: { tes3cmd.Selector | false } = {}
-  for index, filter in objectFilters do
+  -- A filter without a pattern matches nothing, so it isn't kept.
+  local filters: { ObjectFilter } = {}
+  for _, filter in options.objectFilters or {} do
     local pattern = filter[1]
-    selectors[index] = if type(pattern) == 'string' then tes3cmd.selector { id = pattern } else false
+    if type(pattern) ~= 'string' then continue end
+
+    table.insert(
+      filters,
+      { selector = tes3cmd.selector { id = pattern }, allow = filter[2] ~= false }
+    )
   end
 
-  local function filterMatches(plugin: tes3.Plugin): { { [number]: boolean } }
-    local matchesByFilter: { { [number]: boolean } } = {}
-
-    for filterIndex, selector in selectors do
-      local matches: { [number]: boolean } = {}
-
-      if selector then
-        for _, picked in tes3cmd.select.picked(selector, plugin) do
-          matches[picked.index] = true
-        end
-      end
-
-      matchesByFilter[filterIndex] = matches
+  -- The last filter that matches a record decides, so they are asked last to first.
+  local function allowed(plugin: tes3.Plugin, index: number): boolean
+    for position = #filters, 1, -1 do
+      local filter = filters[position]
+      if tes3cmd.select.matchesRecord(filter.selector, plugin, index) then return filter.allow end
     end
 
-    return matchesByFilter
+    return true
   end
 
   for _, entry in loaded do
     local name, plugin = entry.name, entry.plugin
-    local matchesByFilter = filterMatches(plugin)
 
     for index = 0, plugin:count() - 1 do
       local tag = plugin:tag(index)
-      if not mergeTypes[tag] then continue end
-
-      local allow = true
-      for filterIndex, filter in objectFilters do
-        if matchesByFilter[filterIndex][index] then allow = filter[2] ~= false end
-      end
-
-      if not allow then continue end
+      if not mergeTypes[tag] or not allowed(plugin, index) then continue end
 
       local id = identity(plugin, index, tag)
       if not id or id == '' then continue end
