@@ -312,9 +312,34 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return true
   end
 
+  -- One field of `mergeAll`, `empty` being what an absent one holds besides nil.
+  local function mergeEntry(
+    current: Table,
+    base: Table,
+    later: Table,
+    key: string,
+    special: { [string]: Merger }?,
+    empty: string?
+  ): boolean
+    local value, firstValue, laterValue = current[key], base[key], later[key]
+    if firstValue == nil and value == nil and laterValue ~= nil then
+      current[key] = copy(laterValue) :: Value
+      return true
+    end
+
+    -- A later plugin clearing a value keeps the latest one.
+    if (firstValue ~= nil and firstValue ~= empty) and (laterValue == nil or laterValue == empty) then
+      return true
+    end
+
+    return mergeField(current, base, later, key, special)
+  end
+
   -- A field set to false is a value, so only a missing field counts as absent, except that a
   -- record's own string fields are empty when it doesn't have their subrecord. TES3Merge sees those
   -- as missing (null) subrecords, so the top level (`skip` is only passed there) treats '' as absent.
+  -- Merging a field reads and writes that field alone, and only in `current`: the fields are
+  -- taken as `later` and then `first` hold them.
   function mergeAll(
     current: Table?,
     first: Table?,
@@ -325,33 +350,18 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     if not later or not current then return false end
 
     local empty: string? = if skip then '' else nil
-
-    local base: Table, keys: Set = first or {}, {}
+    local base: Table = first or {}
+    local modified = false
 
     for key in later do
-      if type(key) == 'string' then keys[key] = true end
+      if type(key) ~= 'string' or key == 'type' or (skip and skip[key]) then continue end
+      if mergeEntry(current, base, later, key, special, empty) then modified = true end
     end
 
     for key in base do
-      if type(key) == 'string' then keys[key] = true end
-    end
-
-    local modified = false
-    for key in keys do
+      if type(key) ~= 'string' or later[key] ~= nil then continue end
       if key == 'type' or (skip and skip[key]) then continue end
-
-      local value, firstValue, laterValue = current[key], base[key], later[key]
-      if firstValue == nil and value == nil and laterValue ~= nil then
-        current[key] = copy(laterValue) :: Value
-        modified = true
-      elseif
-        (firstValue ~= nil and firstValue ~= empty) and (laterValue == nil or laterValue == empty)
-      then
-        -- A later plugin clearing a value keeps the latest one.
-        modified = true
-      elseif mergeField(current, base, later, key, special) then
-        modified = true
-      end
+      if mergeEntry(current, base, later, key, special, empty) then modified = true end
     end
 
     return modified
