@@ -46,6 +46,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ]]
 
+local intern = require '@dream/intern'
 local loadOrder = require '@load-order'
 local openmw = require '@openmw'
 local tes3 = require '@tes3'
@@ -58,9 +59,19 @@ type Table = { [Key]: Value }
 type Set = { [string]: boolean }
 type Merger = (current: Table, first: Table, later: Table, key: string) -> boolean
 
--- A record one plugin has: where it is, and, for an interior cell, whether the fog patch would
--- change it.
-type Definition = { file: string, plugin: tes3.Plugin, index: number, fogged: boolean }
+-- The records of one type that are up for merging. Each identity, an id whatever its ASCII case,
+-- is a number from `ids`: 1 up, in the order first seen. Under it `definitions` holds the records
+-- that have it, in load order, a lone one as it is and more as a list; and `needsFog`, which only
+-- cells have, whether the fog patch would change the last of them. A record is one number: the
+-- place of its plugin among the opened ones times `Stride`, plus its index there.
+type Kind = {
+  tag: string,
+  ids: dream_intern_Pool,
+  definitions: { number | { number } },
+  needsFog: { boolean }?,
+}
+
+local Stride = 0x100000000
 
 -- An object filter, read once: what selects the ids it names, and whether it keeps them.
 type ObjectFilter = { selector: tes3cmd.Selector, allow: boolean }
@@ -651,30 +662,6 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return false
   end
 
-  -- Whether `patch` would change the record: a creature read from the plugin that has it, a cell
-  -- by what was read of it for its identity.
-  local function wouldPatch(definition: Definition): boolean
-    local plugin, index = definition.plugin, definition.index
-    local tag = plugin:tag(index)
-    if patches.summons and tag == 'CREA' then
-      local creature = plugin:decode(index) :: Creature
-      if not SummonedCreatures[string.lower(creature.id)] then return false end
-
-      return not hasFlag(creature.flags, 'PERSISTENT')
-    end
-
-    return tag == 'CELL' and definition.fogged
-  end
-
-  -- `plugin:decode` throws when a record's bytes don't parse as its type. TES3Merge reports that
-  -- group as failed and merges the rest, so this is the one place a decoding error is caught.
-  local function decode(definition: Definition): (Table?, string?)
-    local decoded, value = pcall(definition.plugin.decode, definition.plugin, definition.index)
-    if not decoded then return nil, tostring(value) end
-
-    return if value then value :: Table else nil, nil
-  end
-
   assert(openmw, 'tes3merge needs an OpenMW config')
   local context: Context = openmw
 
@@ -725,12 +712,20 @@ return function(state: { [string]: unknown }?, openmw: Context?)
 
   -- Groups go by type, in the order each type first appears, then by id, in the order each id first
   -- appears: TES3Merge's dictionaries iterate in insertion order, and its output follows them.
-  local groups: { [string]: { Definition } }, groupOrder: { [string]: { string } } = {}, {}
-  local typeOrder: { string } = {}
+  local kinds: { [string]: Kind }, kindOrder: { Kind } = {}, {}
+
+  for tag in mergeTypes do
+    kinds[tag] = {
+      tag = tag,
+      ids = intern.new 'ascii-nocase',
+      definitions = {},
+      needsFog = if tag == 'CELL' then {} else nil,
+    }
+  end
 
   -- Whether the fog patch would change an interior: it's on, and the cell has an atmosphere
   -- without fog and doesn't behave like an exterior.
-  local function fogged(cell: Cell): boolean
+  local function needsFog(cell: Cell): boolean
     local atmosphere = cell.atmosphereData
     if not patches.fogbug or not atmosphere then return false end
     if hasFlag(cell.data.flags, 'BEHAVES_LIKE_EXTERIOR') then return false end
@@ -751,7 +746,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
 
     local cell = value :: Cell
     local data = cell.data
-    if hasFlag(data.flags, 'IS_INTERIOR') then return id, fogged(cell) end
+    if hasFlag(data.flags, 'IS_INTERIOR') then return id, needsFog(cell) end
 
     return `#{tostring(data.grid[1])},{tostring(data.grid[2])}`, false
   end
@@ -778,34 +773,65 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return true
   end
 
-  for _, entry in loaded do
-    local name, plugin = entry.name, entry.plugin
+  for position, entry in loaded do
+    local plugin, origin = entry.plugin, position * Stride
 
     for index = 0, plugin:count() - 1 do
       local tag = plugin:tag(index)
-      if not mergeTypes[tag] or not allowed(plugin, index) then continue end
+      local kind = kinds[tag]
+      if not kind or not allowed(plugin, index) then continue end
 
       local id, foggy = identity(plugin, index, tag)
       if not id or id == '' then continue end
 
-      local key = tag .. ':' .. string.lower(id)
-      local group = groups[key]
-      if not group then
-        group = {}
-        groups[key] = group
+      local ids: dream_intern_Pool = kind.ids
+      local token = ids:intern(id)
+      local definitions, fog = kind.definitions, kind.needsFog
+      local held = definitions[token]
+      if not held then
+        if token == 1 then table.insert(kindOrder, kind) end
 
-        local keys = groupOrder[tag]
-        if not keys then
-          keys = {}
-          groupOrder[tag] = keys
-          table.insert(typeOrder, tag)
-        end
-
-        table.insert(keys, key)
+        definitions[token] = origin + index
+      elseif type(held) == 'number' then
+        definitions[token] = { held, origin + index }
+      else
+        table.insert(held, origin + index)
       end
 
-      table.insert(group, { file = name, plugin = plugin, index = index, fogged = foggy })
+      if fog then fog[token] = foggy end
     end
+  end
+
+  -- A group as a message names it: its id, lowered.
+  local function lowered(kind: Kind, token: number): string
+    return string.lower(kind.ids:resolve(token))
+  end
+
+  local function file(definition: number): string return loaded[definition // Stride].name end
+
+  local function decode(definition: number): (Table?, string?)
+    local plugin = loaded[definition // Stride].plugin
+
+    -- `plugin:decode` throws when a record's bytes don't parse as its type. TES3Merge reports that
+    -- group as failed and merges the rest, so this is the one place a decoding error is caught.
+    local decoded, value = pcall(plugin.decode, plugin, definition % Stride)
+    if not decoded then return nil, tostring(value) end
+
+    return if value then value :: Table else nil, nil
+  end
+
+  -- Whether `patch` would change the record a group ends with: a creature read from the plugin
+  -- that has it, a cell by what was read of it for its identity.
+  local function wouldPatch(kind: Kind, token: number, last: number): boolean
+    if patches.summons and kind.tag == 'CREA' then
+      local creature = loaded[last // Stride].plugin:decode(last % Stride) :: Creature
+      if not SummonedCreatures[string.lower(creature.id)] then return false end
+
+      return not hasFlag(creature.flags, 'PERSISTENT')
+    end
+
+    local fog = kind.needsFog
+    return if fog then fog[token] else false
   end
 
   local report: Report = {
@@ -821,15 +847,15 @@ return function(state: { [string]: unknown }?, openmw: Context?)
 
   local merged: { Table }, usedMasters: Set = {}, {}
 
-  local function mergeGroup(key: string, definitions: { Definition }): string?
-    local count, tag = #definitions, string.sub(key, 1, 4)
+  local function mergeGroup(kind: Kind, token: number, definitions: { number }): string?
+    local count, tag = #definitions, kind.tag
 
     local last, lastFailure = decode(definitions[count])
     if lastFailure then return lastFailure end
     if not last then return nil end
 
     local current = copyTable(last)
-    local used: Set = { [definitions[1].file] = true, [definitions[count].file] = true }
+    local used: Set = { [file(definitions[1])] = true, [file(definitions[count])] = true }
     local changed = false
 
     -- TES3Merge's merge reports a change for every record three or more plugins define, cells aside.
@@ -846,7 +872,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
 
         -- TES3Merge uses a plugin as a master once its merge has reported a change, its own or a
         -- later plugin's.
-        if changed or merging then used[definitions[index].file] = true end
+        if changed or merging then used[file(definitions[index])] = true end
       end
     end
 
@@ -863,22 +889,25 @@ return function(state: { [string]: unknown }?, openmw: Context?)
       usedMasters[file] = true
     end
 
-    if options.verbose then print(`Merged {tag} record: {string.sub(key, 6)}`) end
+    if options.verbose then print(`Merged {tag} record: {lowered(kind, token)}`) end
 
     return nil
   end
 
-  for _, tag in typeOrder do
-    for _, key in groupOrder[tag] do
-      local definitions = groups[key]
-      if #definitions >= 3 then
+  for _, kind in kindOrder do
+    for token, held in kind.definitions do
+      if type(held) == 'number' then
+        if not wouldPatch(kind, token, held) then continue end
+      elseif #held >= 3 then
         report.candidates += 1
-      elseif not wouldPatch(definitions[#definitions]) then
+      elseif not wouldPatch(kind, token, held[#held]) then
         continue
       end
 
-      local failure = mergeGroup(key, definitions)
-      if failure then table.insert(report.failed, `{key}: {failure}`) end
+      local failure = mergeGroup(kind, token, if type(held) == 'number' then { held } else held)
+      if not failure then continue end
+
+      table.insert(report.failed, `{kind.tag}:{lowered(kind, token)}: {failure}`)
     end
   end
 
