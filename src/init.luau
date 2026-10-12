@@ -50,7 +50,6 @@ local intern = require '@dream/intern'
 local loadOrder = require '@load-order'
 local openmw = require '@openmw'
 local tes3 = require '@tes3'
-local tes3cmd = require '@tes3cmd'
 
 type Context = openmw.Context
 type Key = string | number
@@ -73,8 +72,8 @@ type Kind = {
 
 local Stride = 0x100000000
 
--- An object filter, read once: what selects the ids it names, and whether it keeps them.
-type ObjectFilter = { selector: tes3cmd.Selector, allow: boolean }
+-- An object filter, read once: whether a record's id is one it names, and whether it keeps them.
+type ObjectFilter = { matches: (plugin: tes3.Plugin, index: number) -> boolean, allow: boolean }
 
 -- What the tool reads of a record before it merges it, as `plugin:decode` gives them.
 type Creature = { id: string, flags: string }
@@ -757,17 +756,23 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     local pattern = filter[1]
     if type(pattern) ~= 'string' then continue end
 
-    table.insert(
-      filters,
-      { selector = tes3cmd.selector { id = pattern }, allow = filter[2] ~= false }
-    )
+    -- Only a filter needs @tes3cmd's selectors, so a merge without one doesn't load them.
+    local tes3cmd = require '@tes3cmd'
+    local selector = tes3cmd.selector { id = pattern }
+
+    table.insert(filters, {
+      matches = function(plugin: tes3.Plugin, index: number): boolean
+        return tes3cmd.select.matchesRecord(selector, plugin, index)
+      end,
+      allow = filter[2] ~= false,
+    })
   end
 
   -- The last filter that matches a record decides, so they are asked last to first.
   local function allowed(plugin: tes3.Plugin, index: number): boolean
     for position = #filters, 1, -1 do
       local filter = filters[position]
-      if tes3cmd.select.matchesRecord(filter.selector, plugin, index) then return filter.allow end
+      if filter.matches(plugin, index) then return filter.allow end
     end
 
     return true
