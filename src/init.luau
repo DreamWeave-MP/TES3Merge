@@ -57,7 +57,10 @@ type Value = boolean | number | string | Table
 type Table = { [Key]: Value }
 type Set = { [string]: boolean }
 type Merger = (current: Table, first: Table, later: Table, key: string) -> boolean
-type Definition = { file: string, plugin: tes3.Plugin, index: number }
+
+-- A record one plugin has: where it is, and, for an interior cell, whether the fog patch would
+-- change it.
+type Definition = { file: string, plugin: tes3.Plugin, index: number, fogged: boolean }
 
 -- An object filter, read once: what selects the ids it names, and whether it keeps them.
 type ObjectFilter = { selector: tes3cmd.Selector, allow: boolean }
@@ -638,7 +641,8 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return false
   end
 
-  -- Whether `patch` would change the record, read from the plugin that has it.
+  -- Whether `patch` would change the record: a creature read from the plugin that has it, a cell
+  -- by what was read of it for its identity.
   local function wouldPatch(definition: Definition): boolean
     local plugin, index = definition.plugin, definition.index
     local tag = plugin:tag(index)
@@ -649,17 +653,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
       return not hasFlag(creature.flags, 'PERSISTENT')
     end
 
-    if not patches.fogbug or tag ~= 'CELL' then return false end
-
-    local cell = plugin:decode(index) :: Cell
-    local flags, atmosphere = cell.data.flags, cell.atmosphereData
-    if not hasFlag(flags, 'IS_INTERIOR') or hasFlag(flags, 'BEHAVES_LIKE_EXTERIOR') then
-      return false
-    end
-
-    if not atmosphere then return false end
-
-    return atmosphere.fogDensity == 0
+    return tag == 'CELL' and definition.fogged
   end
 
   -- `plugin:decode` throws when a record's bytes don't parse as its type. TES3Merge reports that
@@ -724,19 +718,32 @@ return function(state: { [string]: unknown }?, openmw: Context?)
   local groups: { [string]: { Definition } }, groupOrder: { [string]: { string } } = {}, {}
   local typeOrder: { string } = {}
 
-  -- Skills, magic effects, and exterior cells are identified by index or grid, not by id.
-  local function identity(plugin: tes3.Plugin, index: number, tag: string): string?
+  -- Whether the fog patch would change an interior: it's on, and the cell has an atmosphere
+  -- without fog and doesn't behave like an exterior.
+  local function fogged(cell: Cell): boolean
+    local atmosphere = cell.atmosphereData
+    if not patches.fogbug or not atmosphere then return false end
+    if hasFlag(cell.data.flags, 'BEHAVES_LIKE_EXTERIOR') then return false end
+
+    return atmosphere.fogDensity == 0
+  end
+
+  -- What a record is identified by, and whether the fog patch would change it. Skills, magic
+  -- effects, and exterior cells are identified by index or grid, not by id; a cell is decoded to
+  -- tell which it is, and that reading says what the patch would find.
+  local function identity(plugin: tes3.Plugin, index: number, tag: string): (string?, boolean)
     local id = tes3.records.fieldId(plugin, index) or tes3.records.id(plugin, index)
-    if tag ~= 'SKIL' and tag ~= 'MGEF' and tag ~= 'CELL' then return id end
+    if tag ~= 'SKIL' and tag ~= 'MGEF' and tag ~= 'CELL' then return id, false end
 
     local value = plugin:decode(index) :: tes3.Value
-    if tag == 'SKIL' then return tostring(value.skillId) end
-    if tag == 'MGEF' then return tostring(value.effectId) end
+    if tag == 'SKIL' then return tostring(value.skillId), false end
+    if tag == 'MGEF' then return tostring(value.effectId), false end
 
-    local data = (value :: Cell).data
-    if hasFlag(data.flags, 'IS_INTERIOR') then return id end
+    local cell = value :: Cell
+    local data = cell.data
+    if hasFlag(data.flags, 'IS_INTERIOR') then return id, fogged(cell) end
 
-    return `#{tostring(data.grid[1])},{tostring(data.grid[2])}`
+    return `#{tostring(data.grid[1])},{tostring(data.grid[2])}`, false
   end
 
   -- A filter without a pattern matches nothing, so it isn't kept.
@@ -768,7 +775,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
       local tag = plugin:tag(index)
       if not mergeTypes[tag] or not allowed(plugin, index) then continue end
 
-      local id = identity(plugin, index, tag)
+      local id, foggy = identity(plugin, index, tag)
       if not id or id == '' then continue end
 
       local key = tag .. ':' .. string.lower(id)
@@ -787,7 +794,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
         table.insert(keys, key)
       end
 
-      table.insert(group, { file = name, plugin = plugin, index = index })
+      table.insert(group, { file = name, plugin = plugin, index = index, fogged = foggy })
     end
   end
 
