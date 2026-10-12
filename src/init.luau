@@ -266,8 +266,10 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return if type(value) == 'table' then copyTable(value) else value
   end
 
+  -- A flag is one of the names `|` and spaces separate, so a text that doesn't hold it anywhere
+  -- doesn't hold it as one.
   local function hasFlag(flags: Value?, flag: string): boolean
-    if type(flags) ~= 'string' then return false end
+    if type(flags) ~= 'string' or not string.find(flags, flag, 1, true) then return false end
 
     for name in string.gmatch(flags, '[^|%s]+') do
       if name == flag then return true end
