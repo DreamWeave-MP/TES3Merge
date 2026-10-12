@@ -400,6 +400,130 @@ suite.describe('the port', function()
     }
   end)
 
+  suite.it('lets the last object filter that matches an id decide', function()
+    local order = fixtures.order('filters', fixtures.Objects, fixtures.Three)
+    fixtures.merge(order, {
+      outputDir = order.out,
+      objectFilters = {
+        { '^jess_', false },
+        { 'GEM$', true },
+        { false, false },
+        { 'flame', false },
+        { '_NPC' },
+      },
+    })
+
+    local merged = fixtures.open(jess.fs.join(order.out, Merged))
+
+    -- A pattern matches in any case, a later filter overrules an earlier one, a filter without a
+    -- pattern matches nothing, and one that doesn't say keeps what it matches.
+    expect(record(merged, 'MISC', 'jess_gem').name).toBe 'Shiny Gem'
+    expect(record(merged, 'NPC_', 'jess_npc').data.level).toBe(10)
+    expect(tes3.records.find(merged, 'LEVI', 'jess_list')).toBeNil()
+    expect(tes3.records.find(merged, 'CREA', 'atronach_flame_summon')).toBeNil()
+    expect(merged:count()).toBe(3)
+  end)
+
+  suite.it('groups ids that differ in ASCII case alone, and names them lowered', function()
+    local function item(id: string, name: string, value: number): fixtures.Fields
+      return { type = 'MiscItem', id = id, name = name, data = { weight = 1, value = value } }
+    end
+
+    local files = {
+      ['Base.esm'] = { item('Jess_Gem', 'Gem', 10), item('jess_меч', 'Меч', 1) },
+      ['A.esp'] = { item('JESS_GEM', 'Shiny Gem', 10), item('jess_МЕЧ', 'Острый меч', 1) },
+      ['B.esp'] = { item('jess_gem', 'Gem', 20), item('jess_меч', 'Меч', 5) },
+    }
+
+    local order = fixtures.order(
+      'case',
+      files,
+      fixtures.Three,
+      { lines = 'encoding=win1251\n', encoding = 'win1251' }
+    )
+    local run = fixtures.merge(order, { outputDir = order.out, verbose = true })
+    local report = (run.state.tes3merge :: Record).report
+
+    -- Only A to Z fold: the sword in capitals is another record, which one file defines.
+    expect(report.candidates).toBe(1)
+    expect(report.merged).toEqual { MISC = 1 }
+    expect(run.printed).toContain 'Merged MISC record: jess_gem\n'
+
+    local merged = fixtures.open(jess.fs.join(order.out, Merged), 'win1251')
+    local gem = record(merged, 'MISC', 'jess_gem')
+    expect(gem.name).toBe 'Shiny Gem'
+    expect(gem.data.value).toBe(20)
+    expect(merged:count()).toBe(2)
+  end)
+
+  suite.it('lists a record that doesn\'t decode as failed, and merges the rest', function()
+    local order = fixtures.order('undecodable', fixtures.Objects, fixtures.Three)
+
+    -- A.esp's gem, with a subrecord after its own that a MISC doesn't have.
+    local path = jess.fs.join(order.data, 'A.esp')
+    local plugin = fixtures.open(path)
+    local index = assert(tes3.records.find(plugin, 'MISC', 'jess_gem'), 'A.esp has the gem')
+    local whole = plugin:bytes(index)
+    local grown = buffer.create(buffer.len(whole) + 8)
+    buffer.copy(grown, 0, whole)
+    buffer.writestring(grown, buffer.len(whole), 'ZZZZ')
+    plugin:replaceBytes(index, grown)
+    jess.fs.write(path, plugin:save())
+
+    local run = fixtures.merge(order, { ignoreRecords = { 'STAT' }, outputDir = order.out })
+    local report = (run.state.tes3merge :: Record).report
+    expect(report.failed).toEqual { 'MISC:jess_gem: Unexpected Tag: MISC::ZZZZ' }
+    expect(report.candidates).toBe(3)
+    expect(report.merged).toEqual { LEVI = 1, NPC_ = 1, CREA = 1 }
+    expect(run.printed).toContain 'wrote 3 merged records'
+  end)
+
+  suite.it('patches the fog of an interior by its last definition', function()
+    local function room(name: string, flags: string, fogDensity: number): fixtures.Fields
+      return {
+        type = 'Cell',
+        name = name,
+        data = { flags = flags, grid = { 0, 0 } },
+        atmosphereData = {
+          ambientColor = { 0, 0, 0, 0 },
+          sunlightColor = { 0, 0, 0, 0 },
+          fogColor = { 0, 0, 0, 0 },
+          fogDensity = fogDensity,
+        },
+      }
+    end
+
+    local outside = 'IS_INTERIOR | BEHAVES_LIKE_EXTERIOR'
+    local files = {
+      ['Base.esm'] = {
+        room('Jess Room', 'IS_INTERIOR', 1),
+        room('Jess Den', 'IS_INTERIOR', 0),
+        room('Jess Yard', outside, 0),
+      },
+      ['A.esp'] = {
+        room('Jess Room', 'IS_INTERIOR', 0),
+        room('Jess Den', 'IS_INTERIOR', 1),
+        room('Jess Yard', outside, 0),
+      },
+    }
+
+    local content = { 'Base.esm', 'A.esp' }
+    local order = fixtures.order('fog', files, content)
+    local run = fixtures.merge(order, { outputDir = order.out })
+    expect((run.state.tes3merge :: Record).report.merged).toEqual { CELL = 1 }
+
+    local merged = fixtures.open(jess.fs.join(order.out, Merged))
+    local patched = merged:decode(assert(first(merged, 'CELL'), 'a cell is patched')) :: Record
+    expect(patched.name).toBe 'Jess Room'
+    expect(patched.atmosphereData.fogDensity > 0).toBe(true)
+    expect(merged:count()).toBe(2)
+
+    -- Without the patch, a cell two files define is left alone.
+    local unpatched = fixtures.order('no-fog', files, content)
+    local left = fixtures.merge(unpatched, { patches = { 'summons' }, outputDir = unpatched.out })
+    expect(left.printed).toBe 'tes3merge: no merges were deemed necessary\n'
+  end)
+
   suite.it('saves the configuration when the merge is already active', function()
     local order = fixtures.order('active', fixtures.Objects, fixtures.Three, { dataLocal = true })
     local first = fixtures.merge(order, { activate = true })
