@@ -72,6 +72,9 @@ type Kind = {
 
 local Stride = 0x100000000
 
+-- A leveled list's entry, and how many times the list that has the most of it has it.
+type Tally = { entry: Table, count: number }
+
 -- An object filter, read once: whether a record's id is one it names, and whether it keeps them.
 type ObjectFilter = { matches: (plugin: tes3.Plugin, index: number) -> boolean, allow: boolean }
 
@@ -274,11 +277,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
   end
 
   local function contains(list: Table, value: Value): boolean
-    for _, item in list do
-      if equal(item, value) then return true end
-    end
-
-    return false
+    return any[for item in list => equal(item, value)]
   end
 
   -- Takes `later`'s value when `current` still has the first definition's.
@@ -503,7 +502,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     local list = asTable(current[key]) or firstList or laterList
     if not list then return false end
 
-    local counts: { [string]: { entry: Table, count: number } }, order: { string } = {}, {}
+    local counts: { [string]: Tally }, order: { Tally } = {}, {}
 
     for _, source in { firstList or {}, list, laterList or {} } do
       local seen: { [string]: number } = {}
@@ -516,8 +515,9 @@ return function(state: { [string]: unknown }?, openmw: Context?)
         seen[entryKey] = (seen[entryKey] or 0) + 1
         if counts[entryKey] then continue end
 
-        counts[entryKey] = { entry = entry, count = 0 }
-        table.insert(order, entryKey)
+        local tally: Tally = { entry = entry, count = 0 }
+        counts[entryKey] = tally
+        table.insert(order, tally)
       end
 
       for entryKey, count in seen do
@@ -525,12 +525,8 @@ return function(state: { [string]: unknown }?, openmw: Context?)
       end
     end
 
-    local union: { Table } = {}
-    for _, entryKey in order do
-      for _ = 1, counts[entryKey].count do
-        table.insert(union, copyTable(counts[entryKey].entry))
-      end
-    end
+    local union: { Table } =
+      [for {entry, count} in order for _ in range(1, count) => copyTable(entry)]
 
     table.sort(union, function(left: Table, right: Table): boolean
       if entryLevel(left) ~= entryLevel(right) then return entryLevel(left) < entryLevel(right) end
@@ -682,7 +678,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     if allow == false then ignoredFiles[string.lower(name)] = true end
   end
 
-  local entries: { loadOrder.Content }, unreadable: { string }, mergeTags: { string } = {}, {}, {}
+  local entries: { loadOrder.Content }, mergeTags: { string } = {}, {}
 
   for _, content in context:content() do
     local name, path = string.lower(content.name), content.path
@@ -703,10 +699,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     encoding = encoding,
   })
 
-  for _, failure in opened.failures do
-    table.insert(unreadable, `{failure.name}: {failure.problem}`)
-  end
-
+  local unreadable: { string } = [for {name, problem} in opened.failures => `{name}: {problem}`]
   local loaded = opened.plugins
 
   -- Groups go by type, in the order each type first appears, then by id, in the order each id first
@@ -926,15 +919,10 @@ return function(state: { [string]: unknown }?, openmw: Context?)
   output:setDescription(`Automatic merge generated at {os.date '!%Y-%m-%dT%H:%M:%SZ'}.`)
 
   if not options.noMasters then
-    local masters: { { name: string, size: number } } = {}
+    local masters: { { name: string, size: number } } =
+      [for {name, size} in loaded if usedMasters[name] => { name = name, size = size }]
 
-    for _, entry in loaded do
-      if not usedMasters[entry.name] then continue end
-
-      table.insert(report.masters, entry.name)
-      table.insert(masters, { name = entry.name, size = entry.size })
-    end
-
+    into(report.masters)[for master in masters => master.name]
     output:setMasters(masters)
   end
 
