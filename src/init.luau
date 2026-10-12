@@ -807,7 +807,10 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return string.lower(kind.ids:resolve(token))
   end
 
-  local function file(definition: number): string return loaded[definition // Stride].name end
+  -- The name of the file a record is in.
+  local function definedIn(definition: number): string
+    return loaded[definition // Stride].name
+  end
 
   local function decode(definition: number): (Table?, string?)
     local plugin = loaded[definition // Stride].plugin
@@ -855,7 +858,8 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     if not last then return nil end
 
     local current = copyTable(last)
-    local used: Set = { [file(definitions[1])] = true, [file(definitions[count])] = true }
+    local used: Set =
+      { [definedIn(definitions[1])] = true, [definedIn(definitions[count])] = true }
     local changed = false
 
     -- TES3Merge's merge reports a change for every record three or more plugins define, cells aside.
@@ -872,7 +876,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
 
         -- TES3Merge uses a plugin as a master once its merge has reported a change, its own or a
         -- later plugin's.
-        if changed or merging then used[file(definitions[index])] = true end
+        if changed or merging then used[definedIn(definitions[index])] = true end
       end
     end
 
