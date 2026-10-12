@@ -34,7 +34,8 @@ a tab.
 - Date: 2026-10-12.
 - Binary: the verified release build of Jess 0.1.0 on l3i 2.0.2 (Luau 0.742), the same one for
   both sides, as are the packages this one depends on.
-- Base: `f14c91d`, the package before the move, with this bench. Head: `e6abdad`.
+- Base: `f14c91d`, the package before the move, with this bench. Head: `e6abdad`; what follows
+  it is this page and a helper's new name.
 - Protocol: the whole bench against an export of base and against head, four times each,
   alternating and swapping which goes first, back to back under one lock; each cell is the
   median of its four runs. A difference under 5 percent is called no change.
