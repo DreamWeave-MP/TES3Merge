@@ -524,6 +524,143 @@ suite.describe('the port', function()
     expect(left.printed).toBe 'tes3merge: no merges were deemed necessary\n'
   end)
 
+  suite.it('keeps as many of a leveled entry as the list with the most of it has', function()
+    local function list(items: { { unknown } }): fixtures.Fields
+      return { type = 'LeveledItem', id = 'jess_list', chanceNone = 50, items = items }
+    end
+
+    local gem, old = { 'jess_gem', 1 }, { 'jess_old', 1 }
+    local files = {
+      ['Base.esm'] = { list { gem, old } },
+      ['A.esp'] = { list { gem, gem, { 'jess_new', 1 } } },
+      ['B.esp'] = { list { gem, old, old, old, { 'jess_extra', 2 } } },
+    }
+
+    local merged = mergeAndOpen('repeats', fixtures.Three, files)
+    local entries = {}
+    for _, entry in record(merged, 'LEVI', 'jess_list').items do
+      table.insert(entries, `{entry[1]} {entry[2]}`)
+    end
+
+    -- By level, then by id: A's two gems, B's three of the old.
+    expect(entries).toEqual {
+      'jess_gem 1',
+      'jess_gem 1',
+      'jess_new 1',
+      'jess_old 1',
+      'jess_old 1',
+      'jess_old 1',
+      'jess_extra 2',
+    }
+  end)
+
+  suite.it('merges a field that only some definitions hold', function()
+    local function creature(id: string, name: string, scale: number?): fixtures.Fields
+      return { type = 'Creature', id = id, name = name, scale = scale }
+    end
+
+    -- A creature without a scale decodes without the field.
+    local files = {
+      ['Base.esm'] = {
+        creature('jess_rat', 'Rat', 2),
+        creature('jess_bat', 'Bat', nil),
+        creature('jess_cat', 'Cat', 2),
+      },
+      ['A.esp'] = {
+        creature('jess_rat', 'Big Rat', nil),
+        creature('jess_bat', 'Bat', 1.5),
+        creature('jess_cat', 'Cat', nil),
+      },
+      ['B.esp'] = {
+        creature('jess_rat', 'Rat', 2),
+        creature('jess_bat', 'Old Bat', nil),
+        creature('jess_cat', 'Cat', nil),
+      },
+    }
+
+    local order = fixtures.order('optional', files, fixtures.Three)
+    local run = fixtures.merge(order, { outputDir = order.out })
+    expect((run.state.tes3merge :: Record).report.candidates).toBe(3)
+
+    local merged = fixtures.open(jess.fs.join(order.out, Merged))
+
+    -- A scale the middle plugin leaves out stays the last one's, beside the name it changes.
+    local rat = record(merged, 'CREA', 'jess_rat')
+    expect(rat.name).toBe 'Big Rat'
+    expect(rat.scale).toBe(2)
+
+    -- A scale only the middle plugin has is taken, beside the name the last one changes.
+    local bat = record(merged, 'CREA', 'jess_bat')
+    expect(bat.name).toBe 'Old Bat'
+    expect(bat.scale).toBe(1.5)
+
+    -- A scale only the first has went with the last, which leaves nothing to write.
+    expect(tes3.records.find(merged, 'CREA', 'jess_cat')).toBeNil()
+    expect(merged:count()).toBe(3)
+  end)
+
+  suite.it('asks every object filter its list holds, past a gap in it', function()
+    local order = fixtures.order('filter-gap', fixtures.Objects, fixtures.Three)
+    local filters: { { string | boolean } } = {}
+    filters[1] = { '^jess_', false }
+    filters[3] = { 'gem$', true }
+    fixtures.merge(order, { outputDir = order.out, objectFilters = filters })
+
+    local merged = fixtures.open(jess.fs.join(order.out, Merged))
+    expect(record(merged, 'MISC', 'jess_gem').name).toBe 'Shiny Gem'
+    expect(tes3.records.find(merged, 'NPC_', 'jess_npc')).toBeNil()
+    expect(tes3.records.find(merged, 'LEVI', 'jess_list')).toBeNil()
+    expect(record(merged, 'CREA', 'atronach_flame_summon').flags).toContain 'PERSISTENT'
+    expect(merged:count()).toBe(3)
+  end)
+
+  suite.it('groups hundreds of ids, in the order the first file has them', function()
+    local function item(id: string, name: string, value: number): fixtures.Fields
+      return { type = 'MiscItem', id = id, name = name, data = { weight = 1, value = value } }
+    end
+
+    local count = 400
+    local base: { fixtures.Fields }, renamed: { fixtures.Fields } = {}, {}
+    local repriced: { fixtures.Fields } = {}
+
+    for number = 1, count do
+      base[number] = item(`Jess_Item_{number}`, 'Item', 1)
+
+      -- In another order: 401 is prime, so its multiples of seven are every number once.
+      repriced[number] = item(`jess_item_{number * 7 % (count + 1)}`, 'Item', 5)
+    end
+
+    -- Last to first, in capitals, each before an id no other file has: an id the grouping holds
+    -- is asked for again at every number of ids it holds, from 400 to 799.
+    for number = count, 1, -1 do
+      table.insert(renamed, item(`JESS_ITEM_{number}`, `Item {number}`, 1))
+      table.insert(renamed, item(`jess_only_{number}`, 'Only', 1))
+    end
+
+    local files = { ['Base.esm'] = base, ['A.esp'] = renamed, ['B.esp'] = repriced }
+    local order = fixtures.order('hundreds', files, fixtures.Three)
+    local run = fixtures.merge(order, { outputDir = order.out })
+    local report = (run.state.tes3merge :: Record).report
+    expect(report.candidates).toBe(count)
+    expect(report.merged).toEqual { MISC = count }
+
+    local merged = fixtures.open(jess.fs.join(order.out, Merged))
+    expect(merged:count()).toBe(count + 1)
+
+    -- Each is the last file's record, under its spelling, with the middle file's name.
+    local wrong = {}
+    for number = 1, count do
+      local found = merged:decode(number) :: Record
+      if found.id == `jess_item_{number}` and found.name == `Item {number}` and found.data.value == 5 then
+        continue
+      end
+
+      table.insert(wrong, `{number}: {found.id}, {found.name}, {found.data.value}`)
+    end
+
+    expect(wrong).toEqual {}
+  end)
+
   suite.it('saves the configuration when the merge is already active', function()
     local order = fixtures.order('active', fixtures.Objects, fixtures.Three, { dataLocal = true })
     local first = fixtures.merge(order, { activate = true })
