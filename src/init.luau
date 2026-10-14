@@ -76,7 +76,7 @@ local Stride = 0x100000000
 type Tally = { entry: Table, count: number }
 
 -- An object filter, read once: whether a record's id is one it names, and whether it keeps them.
-type ObjectFilter = { matches: (plugin: tes3.Plugin, index: number) -> boolean, allow: boolean }
+type ObjectFilter = { regex: Regex, allow: boolean }
 
 -- What the tool reads of a record before it merges it, as `plugin:decode` gives them.
 type Creature = { id: string, flags: string }
@@ -745,29 +745,31 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     return `#{tostring(data.grid[1])},{tostring(data.grid[2])}`, false
   end
 
-  -- A filter without a pattern matches nothing, so it isn't kept.
+  -- A filter without a pattern matches nothing, so it isn't kept. A pattern is a regex over the
+  -- record's id, matched without regard to case, as tes3cmd's selectors read one.
   local filters: { ObjectFilter } = {}
   for _, filter in options.objectFilters or {} do
     local pattern = filter[1]
     if type(pattern) ~= 'string' then continue end
 
-    -- Only a filter needs @tes3cmd's selectors, so a merge without one doesn't load them.
-    local tes3cmd = require '@tes3cmd'
-    local selector = tes3cmd.selector { id = pattern }
+    -- jess.regex.new throws on a pattern that isn't a regex.
+    local compiled, regex = pcall(jess.regex.new, pattern, { caseInsensitive = true })
+    if not compiled then error(`invalid regex '{pattern}': {regex}`, 0) end
 
-    table.insert(filters, {
-      matches = function(plugin: tes3.Plugin, index: number): boolean
-        return tes3cmd.select.matchesRecord(selector, plugin, index)
-      end,
-      allow = filter[2] ~= false,
-    })
+    table.insert(filters, { regex = regex :: Regex, allow = filter[2] ~= false })
   end
 
-  -- The last filter that matches a record decides, so they are asked last to first.
+  -- The last filter that matches a record decides, so they are asked last to first. A record
+  -- without an id matches no filter.
   local function allowed(plugin: tes3.Plugin, index: number): boolean
+    if #filters == 0 then return true end
+
+    local id = tes3.records.id(plugin, index)
+    if not id then return true end
+
     for position = #filters, 1, -1 do
       local filter = filters[position]
-      if filter.matches(plugin, index) then return filter.allow end
+      if filter.regex:isMatch(id) then return filter.allow end
     end
 
     return true
