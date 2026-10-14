@@ -78,6 +78,8 @@ type Tally = { entry: Table, count: number }
 -- An object filter, read once: whether a record's id is one it names, and whether it keeps them.
 type ObjectFilter = { regex: Regex, allow: boolean }
 
+local CaseInsensitive: RegexOptions = { caseInsensitive = true }
+
 -- What the tool reads of a record before it merges it, as `plugin:decode` gives them.
 type Creature = { id: string, flags: string }
 type Cell = {
@@ -753,7 +755,7 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     if type(pattern) ~= 'string' then continue end
 
     -- jess.regex.new throws on a pattern that isn't a regex.
-    local compiled, regex = pcall(jess.regex.new, pattern, { caseInsensitive = true })
+    local compiled, regex = pcall(jess.regex.new, pattern, CaseInsensitive)
     if not compiled then error(`invalid regex '{pattern}': {regex}`, 0) end
 
     table.insert(filters, { regex = regex :: Regex, allow = filter[2] ~= false })
