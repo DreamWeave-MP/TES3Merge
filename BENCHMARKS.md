@@ -1,6 +1,6 @@
 # tes3merge benchmarks
 
-`bench/bench.luau` times the tool the way it is reached: `@tes3merge` called with an `@openmw`
+`bench/bench.jsl` times the tool the way it is reached: `@tes3merge` called with an `@openmw`
 Context over load orders the bench builds with `@tes3`, the argument lists `@tes3merge/cli`
 reads, and the command line, warm and from a cold start. The load order is a master of 6,200
 records of the types the tool merges (items, spells with their effects, NPCs and creatures with
@@ -13,7 +13,7 @@ three definitions, which is what most of a real load order looks like; a third i
 
 A warm workload is warmed up, sized to a batch of about a tenth of a second, and reported as the
 median of seven batches with a full collection between them. A `cold:` workload is the median of
-seven fresh processes running `bench/cold.luau`, the command line run once and timed inside the
+seven fresh processes running `bench/cold.jsl`, the command line run once and timed inside the
 script from its first `require`. Every merge's report and a digest of the records it wrote are
 compared with what the bench has pinned, before the first batch and after the last, so a path
 that stops doing the work stops the run instead of posting a time.
@@ -21,7 +21,7 @@ that stops doing the work stops the run instead of posting a time.
 ```sh
 jess run --capability filesystem.read --capability filesystem.write \
   --capability process.spawn --package jpk/tes3merge --package-path jpk \
-  jpk/tes3merge/bench/bench.luau <scratch> [filter] [jess binary] [package path]
+  jpk/tes3merge/bench/bench.jsl <scratch> [filter] [jess binary] [package path]
 ```
 
 Without the binary (and `process.spawn`) the cold workloads are skipped. The tool reports through
