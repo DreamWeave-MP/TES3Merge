@@ -1,5 +1,4 @@
 --!strict
---!native
 --[[
 @tes3merge/cli: TES3Merge's command line.
 
