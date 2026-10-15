@@ -134,3 +134,51 @@ let a malformed cell or creature through that stops a run today, which is why it
 
 An object filter is asked through `@tes3cmd`'s `matchesRecord`, which reads the record's id each
 time: three filters read it up to three times. Reading it once is `@tes3cmd`'s to offer.
+
+## Which modules are native, and why
+
+Jess compiles to machine code only what is marked (`--!native` on a module, `@native` on one
+function), and every load pays for what is marked. A module carries `--!native` when a row below
+spends its time there and the module is small (12 KB or less); a larger module carries `@native`
+on the functions the row spends its time in, and nothing else.
+
+Measured 2026-10-14 with `jess 0.1.0`, the verified release build of jess `07c38cb` on l3i
+2.0.3, on the i7-10870H, the one-minute load 1.47 and 0.99 at the start of the two
+sessions. In each session the bench ran alternately on this package and on a copy of it with
+every module marked, three fresh runs of `bench/bench.jsl` each, every run's row the median of
+its batches; a column is the median of the three, and a ratio is against the all-marked runs of
+the same session. Which functions a row spends its time in comes from `jess run --profile` of
+that row alone, unmarked. The load cost is a fresh `jess run --package <this package>
+--package-path jpk` of a script that only requires `@tes3merge`, the two sides alternating, the
+median of five each after one warm-up.
+
+| Requiring `@tes3merge` | All marked | This state |
+| --- | ---: | ---: |
+| Unmarked | 0.123 s | 0.120 s |
+| Final | 0.129 s | 0.127 s |
+
+| Row | All marked (ms) | Unmarked / all marked | Final (ms) | Final / all marked |
+| --- | ---: | ---: | ---: | ---: |
+| merge five plugins, every type | 48.89 | **1.148×** | 51.34 | **1.050×** |
+| merge five plugins, inventories as a union | 18.47 | **1.185×** | 19.04 | 1.031× |
+| merge five plugins, leveled lists | 9.300 | **1.133×** | 9.533 | 1.025× |
+| merge five plugins, spells, enchantments, and potions | 7.759 | **1.163×** | 7.733 | 0.997× |
+| merge five plugins, items | 12.72 | **1.221×** | 12.64 | 0.994× |
+| merge five plugins, cells | 12.45 | **1.055×** | 12.62 | 1.013× |
+| merge five plugins, three object filters | 37.80 | **1.176×** | 39.06 | 1.033× |
+| merge five plugins, no patches, no masters | 44.18 | **1.238×** | 44.03 | 0.997× |
+| two plugins, nothing to merge | 11.87 | **1.141×** | 11.92 | 1.004× |
+| two plugins, the patches alone | 18.67 | **1.137×** | 18.60 | 0.996× |
+| merge three small plugins | 3.089 | **1.109×** | 3.005 | 0.973× |
+| parse 8 argument lists | 0.01443 | **1.388×** | 0.01928 | **1.336×** |
+| the command, five plugins | 50.83 | **1.222×** | 50.98 | 1.003× |
+
+What carries the directive: `init`, whole. `cli` and `main` parse a command line once a run and
+are never marked, so `parse 8 argument lists` is the one row more than 5% slower than all marked
+(1.34x, of a 14 µs call).
+
+Marking only the functions of `init` a merge's profile names cost 0.004 s less a load than all
+marked, in a session of its own, and left 9 rows more than 5% slower, the merges among them at
+1.07x to 1.16x: a merge reaches most of `init`, so the rest of it is no long tail to leave as
+bytecode. Whole, `init` saves 0.002 s a load and every merge is within 5% of all marked; a run of
+the tool is a merge, so that is the state kept.
