@@ -5,6 +5,7 @@
 -- Its messages go to the suite's own standard error.
 local cli = require '@tes3merge/cli'
 local fixtures = require './fixtures'
+local fs = require '@dream/fs'
 local tes3 = require '@tes3'
 local test = require '@jess/test'
 
@@ -101,7 +102,7 @@ local function parsed(argv: { string }): cli.Command? return (cli.parse(argv)) e
 
 --- The merged plugin a run left in `folder`.
 local function merged(folder: string): tes3.Plugin
-  return fixtures.open(jess.fs.join(folder, Merged))
+  return fixtures.open(fs.join(folder, Merged))
 end
 
 suite.describe('parse', function()
@@ -492,12 +493,12 @@ suite.describe('run', function()
   suite.it('returns 8 for a configuration that isn\'t there, and writes nothing', function()
     local order = fixtures.order('cli-missing', fixtures.Objects, fixtures.Three)
     local before = fixtures.read(order.config)
-    expect(cli.run { '--config', jess.fs.join(order.root, 'nowhere/openmw.cfg') }).toBe(8)
-    expect(cli.run { '--config', jess.fs.join(order.root, 'nowhere') }).toBe(8)
+    expect(cli.run { '--config', fs.join(order.root, 'nowhere/openmw.cfg') }).toBe(8)
+    expect(cli.run { '--config', fs.join(order.root, 'nowhere') }).toBe(8)
 
     -- A folder is the configuration only when it holds an openmw.cfg.
     expect(cli.run { '--config', order.data }).toBe(8)
-    expect(jess.fs.exists(jess.fs.join(order.data, Merged))).toBe(false)
+    expect(fs.exists(fs.join(order.data, Merged))).toBe(false)
     expect(fixtures.read(order.config)).toBe(before)
   end)
 
@@ -520,7 +521,9 @@ suite.describe('run', function()
     local masters = {}
     for _, master in plugin:masters() do
       table.insert(masters, master.name)
-      expect(master.size).toBe(jess.fs.size(jess.fs.join(order.data, master.name)))
+      local fileStat, problem = fs.stat(fs.join(order.data, master.name))
+      if not fileStat then error(problem, 0) end
+      expect(master.size).toBe(fileStat.size)
     end
 
     expect(masters).toEqual { 'Base.esm', 'A.esp', 'B.esp' }
@@ -571,7 +574,7 @@ suite.describe('run', function()
       ['B.esp'] = { chest { { 1, 'jess_gem' }, { 3, 'jess_coin' } } },
     }, fixtures.Three)
     expect(cli.run { '--config', chests.config, '--output-dir', chests.out }).toBe(0)
-    expect(jess.fs.exists(jess.fs.join(chests.out, Merged))).toBe(false)
+    expect(fs.exists(fs.join(chests.out, Merged))).toBe(false)
     expect(cli.run { '--config', chests.config, '--output-dir', chests.out, '-i' }).toBe(0)
     expect(merged(chests.out):count()).toBe(2)
   end)
@@ -624,7 +627,7 @@ suite.describe('run', function()
     expect(cli.run { '--config', order.config, '--encoding', '1251', '--verbose' }).toBe(0)
     expect(fixtures.output()).toContain 'Merged MISC record: jess_меч'
 
-    local plugin = fixtures.open(jess.fs.join(order.dataLocal, Merged), 'win1251')
+    local plugin = fixtures.open(fs.join(order.dataLocal, Merged), 'win1251')
     local sword = plugin:decode(assert(tes3.records.find(plugin, 'MISC', 'jess_меч'))) :: { [string]: any }
     expect(sword.name).toBe 'Острый меч'
   end)
@@ -649,26 +652,34 @@ suite.describe('run', function()
       expect(cli.run(argv)).toBe(9)
     end
 
-    expect(jess.fs.exists(jess.fs.join(order.out, Merged))).toBe(false)
+    expect(fs.exists(fs.join(order.out, Merged))).toBe(false)
     expect(fixtures.read(order.config)).toBe(before)
   end)
 
   suite.it('returns 9 for a configuration with nowhere to write', function()
     local order = fixtures.order('cli-nowhere', fixtures.Objects, fixtures.Three)
-    jess.fs.write(order.config, 'content=Base.esm\n')
+    local done, problem = fs.writeFile(order.config, 'content=Base.esm\n', { atomic = true, createParents = true })
+    if not done then error(problem, 0) end
     expect(cli.run { '--config', order.config, '--patches', 'none' }).toBe(0)
 
     -- With something to write and no data folder, the merge stops before writing.
-    jess.fs.write(
+    local done, problem = fs.writeFile(
       order.config,
-      `resources="{order.root}/resources"\ndata="{order.root}/resources/vfs"\ncontent=A.esp\n`
+      `resources="{order.root}/resources"\ndata="{order.root}/resources/vfs"\ncontent=A.esp\n`,
+      { atomic = true, createParents = true }
     )
-    jess.fs.write(
-      jess.fs.join(order.root, 'resources/vfs/A.esp'),
-      assert(jess.fs.readBuffer(jess.fs.join(order.data, 'A.esp')))
+    if not done then error(problem, 0) end
+    local fileBytes, missing = fs.readFile(fs.join(order.data, 'A.esp'))
+    if not fileBytes then error(missing, 0) end
+
+    local done, problem = fs.writeFile(
+      fs.join(order.root, 'resources/vfs/A.esp'),
+      fileBytes,
+      { atomic = true, createParents = true }
     )
+    if not done then error(problem, 0) end
     expect(cli.run { '--config', order.config }).toBe(9)
-    expect(jess.fs.exists(jess.fs.join(order.root, 'resources/vfs/' .. Merged))).toBe(false)
+    expect(fs.exists(fs.join(order.root, 'resources/vfs/' .. Merged))).toBe(false)
   end)
 
   suite.it('returns 0 for a merge that left plugins out, and for one with nothing to do', function()
@@ -677,7 +688,8 @@ suite.describe('run', function()
       fixtures.Objects,
       { 'Base.esm', 'Broken.esp', 'A.esp', 'B.esp' }
     )
-    jess.fs.write(jess.fs.join(order.data, 'Broken.esp'), 'not a plugin')
+    local done, problem = fs.writeFile(fs.join(order.data, 'Broken.esp'), 'not a plugin', { atomic = true, createParents = true })
+    if not done then error(problem, 0) end
     expect(cli.run { '--config', order.config, '--output-dir', order.out }).toBe(0)
     expect(merged(order.out):count()).toBe(5)
 
@@ -685,7 +697,7 @@ suite.describe('run', function()
     fixtures.forget()
     expect(cli.run { '--config', nothing.config, '--patches', 'none' }).toBe(0)
     expect(fixtures.output()).toBe 'tes3merge: no merges were deemed necessary\n'
-    expect(jess.fs.exists(jess.fs.join(nothing.data, Merged))).toBe(false)
+    expect(fs.exists(fs.join(nothing.data, Merged))).toBe(false)
   end)
 end)
 

@@ -347,7 +347,7 @@ local function configuration(given: string?): (string?, string?)
   if not names then return nil, `can't list the configuration folder '{selected}': {listProblem}` end
 
   for _, name in names do
-    if string.lower(name) == 'openmw.cfg' then return jess.fs.join(selected, name), nil end
+    if string.lower(name) == 'openmw.cfg' then return fs.join(selected, name), nil end
   end
 
   return nil, `the folder '{selected}' has no openmw.cfg`

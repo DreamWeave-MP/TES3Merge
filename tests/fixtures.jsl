@@ -58,7 +58,8 @@ local function plugin(data: string, name: string, records: { Fields }, encoding:
   end
 
   built:updateRecordCount()
-  jess.fs.write(jess.fs.join(data, name), built:save())
+  local done, problem = fs.writeFile(fs.join(data, name), built:save(), { atomic = true, createParents = true })
+  if not done then error(problem, 0) end
 end
 
 --- A fresh load order named `name`: the plugins `files` names, in `content` order.
@@ -69,15 +70,15 @@ local function order(
   options: OrderOptions?
 ): Order
   local given: OrderOptions = options or {}
-  local root = jess.fs.join(scratch, 'tes3merge', name)
+  local root = fs.join(scratch, 'tes3merge', name)
   if fs.exists(root) then io(fs.remove(root, { recursive = true })) end
 
   local built: Order = {
     root = root,
-    config = jess.fs.join(root, 'openmw.cfg'),
-    data = jess.fs.join(root, 'data'),
-    dataLocal = jess.fs.join(root, 'local'),
-    out = jess.fs.join(root, 'out'),
+    config = fs.join(root, 'openmw.cfg'),
+    data = fs.join(root, 'data'),
+    dataLocal = fs.join(root, 'local'),
+    out = fs.join(root, 'out'),
   }
 
   for _, folder in { built.data, built.dataLocal, built.out } do

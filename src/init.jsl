@@ -46,10 +46,14 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ]]
 
+local bytes = require '@dream/bytes'
+local fs = require '@dream/fs'
 local intern = require '@dream/intern'
 local loadOrder = require '@load-order'
 local openmw = require '@openmw'
 local tes3 = require '@tes3'
+
+type Regex = dream_bytes_Regex
 
 type Context = openmw.Context
 type Key = string | number
@@ -78,7 +82,7 @@ type Tally = { entry: Table, count: number }
 -- An object filter, read once: whether a record's id is one it names, and whether it keeps them.
 type ObjectFilter = { regex: Regex, allow: boolean }
 
-local CaseInsensitive: RegexOptions = { caseInsensitive = true }
+local CaseInsensitive = { caseInsensitive = true }
 
 -- What the tool reads of a record before it merges it, as `plugin:decode` gives them.
 type Creature = { id: string, flags: string }
@@ -754,8 +758,8 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     local pattern = filter[1]
     if type(pattern) ~= 'string' then continue end
 
-    -- jess.regex.new throws on a pattern that isn't a regex.
-    local compiled, regex = pcall(jess.regex.new, pattern, CaseInsensitive)
+    -- bytes.regex throws on a pattern that isn't a regex.
+    local compiled, regex = pcall(bytes.regex, pattern, CaseInsensitive)
     if not compiled then error(`invalid regex '{pattern}': {regex}`, 0) end
 
     table.insert(filters, { regex = regex :: Regex, allow = filter[2] ~= false })
@@ -945,11 +949,15 @@ return function(state: { [string]: unknown }?, openmw: Context?)
     outputDir,
     'tes3merge: openmw.cfg has no data-local= or data= folder to write to; add one or set outputDir'
   )
-  if not jess.fs.isDir(outputDir) then jess.fs.createDir(outputDir) end
+  if not fs.isDir(outputDir) then
+    local done, problem = fs.mkdir(outputDir, { recursive = true })
+    if not done then error(problem, 0) end
+  end
 
   local path = `{outputDir}/{fileName}`
   output:updateRecordCount()
-  jess.fs.write(path, output:save())
+  local done, problem = fs.writeFile(path, output:save(), { atomic = true, createParents = true })
+  if not done then error(problem, 0) end
   report.path = path
 
   -- OpenMW only loads content files from its data folders, and `activate` refuses one anywhere
