@@ -118,7 +118,7 @@ suite.describe('merging', function()
     })
 
     -- Without outputDir, the merge goes to data-local, and `activate` enables it.
-    expect(fs.exists(fs.join(order.data, Merged))).toBe(false)
+    expect((fs.exists(fs.join(order.data, Merged)))).toBe(false)
     local merged = fixtures.open(fs.join(order.dataLocal, Merged))
 
     local cells: { [string]: Record } = {}
@@ -148,9 +148,7 @@ suite.describe('merging', function()
 
     -- The real configuration is only read. A configuration chained after it sets data-local to
     -- this case's own folder, so nothing the merge writes can land in the real data folders.
-    local value, problem = fs.parent(real)
-    if not value then error(problem, 0) end
-    local realFolder = if fs.isDir(real) then real else value
+    local realFolder = if fs.isDir(real) then real else fs.parent(real) or error(`'{real}' is a root, not a configuration`, 0)
     local order = fixtures.order('real', {}, {})
     local done, problem = fs.writeFile(fs.join(order.dataLocal, 'openmw.cfg'), `data-local="{order.out}"\n`, { atomic = true, createParents = true })
     if not done then error(problem, 0) end
@@ -186,7 +184,7 @@ suite.describe('merging', function()
     expect(
       function() fixtures.merge(order, { patches = { 'fogbugs' }, outputDir = order.out }) end
     ).toThrow 'unknown patch "fogbugs"'
-    expect(fs.exists(fs.join(order.out, Merged))).toBe(false)
+    expect((fs.exists(fs.join(order.out, Merged)))).toBe(false)
   end)
 
   suite.it('reads and writes the configured encoding', function()
@@ -343,7 +341,7 @@ suite.describe('the port', function()
     local order = fixtures.order('nothing', fixtures.Objects, { 'Base.esm', 'B.esp' })
     local run = fixtures.merge(order, { patches = { 'none' }, outputDir = order.out })
     expect(run.printed).toBe 'tes3merge: no merges were deemed necessary\n'
-    expect(fs.exists(fs.join(order.out, Merged))).toBe(false)
+    expect((fs.exists(fs.join(order.out, Merged)))).toBe(false)
     expect((run.state.tes3merge :: Record).report).toEqual {
       masters = {},
       files = 2,
@@ -396,7 +394,7 @@ suite.describe('the port', function()
 
     local latest = fixtures.order('exclusive', files, fixtures.Three)
     fixtures.merge(latest, { outputDir = latest.out })
-    expect(fs.exists(fs.join(latest.out, Merged))).toBe(false)
+    expect((fs.exists(fs.join(latest.out, Merged)))).toBe(false)
 
     local union = fixtures.order('inclusive', files, fixtures.Three)
     fixtures.merge(union, { inclusive = true, outputDir = union.out })
@@ -534,7 +532,7 @@ suite.describe('the port', function()
   end)
 
   suite.it('keeps as many of a leveled entry as the list with the most of it has', function()
-    local function list(items: { { unknown } }): fixtures.Fields
+    local function list(items: { { string | number } }): fixtures.Fields
       return { type = 'LeveledItem', id = 'jess_list', chanceNone = 50, items = items }
     end
 
@@ -676,7 +674,7 @@ suite.describe('the port', function()
     expect((first.state.tes3merge :: Record).report.activated).toBe(true)
     expect(fixtures.read(order.config)).toContain 'content=Merged Objects.esp'
     expect(fs.isFile(order.config .. '.bak')).toBe(true)
-    expect(fs.exists(order.config .. '.bak1')).toBe(false)
+    expect((fs.exists(order.config .. '.bak1'))).toBe(false)
 
     -- The second run finds the merge in the content already, reads past it, and still saves.
     local saved = fixtures.read(order.config)

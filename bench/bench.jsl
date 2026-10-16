@@ -275,7 +275,7 @@ local function effects(index: number, revision: number): { Fields }
   end
 
   if revision == 2 then
-    table.insert(list, {
+    local sanctuary: Fields = {
       magicEffect = 'Sanctuary',
       skill = 'None',
       attribute = 'None',
@@ -284,7 +284,8 @@ local function effects(index: number, revision: number): { Fields }
       duration = 30,
       minMagnitude = 5,
       maxMagnitude = 15,
-    })
+    }
+    table.insert(list, sanctuary)
   end
 
   return list

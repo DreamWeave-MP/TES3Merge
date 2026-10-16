@@ -474,7 +474,7 @@ suite.describe('run', function()
 
     -- One line: the command's name, the version the manifest gives the package, what it is.
     local line = '^tes3merge %d+%.%d+%.%d+, a Jess port of TES3Merge\'s object merging$'
-    expect(string.match(cli.version, line)).toBe(cli.version)
+    expect((string.match(cli.version, line))).toBe(cli.version)
   end)
 
   suite.it('returns 8 for every command line parse refuses', function()
@@ -498,7 +498,7 @@ suite.describe('run', function()
 
     -- A folder is the configuration only when it holds an openmw.cfg.
     expect(cli.run { '--config', order.data }).toBe(8)
-    expect(fs.exists(fs.join(order.data, Merged))).toBe(false)
+    expect((fs.exists(fs.join(order.data, Merged)))).toBe(false)
     expect(fixtures.read(order.config)).toBe(before)
   end)
 
@@ -574,7 +574,7 @@ suite.describe('run', function()
       ['B.esp'] = { chest { { 1, 'jess_gem' }, { 3, 'jess_coin' } } },
     }, fixtures.Three)
     expect(cli.run { '--config', chests.config, '--output-dir', chests.out }).toBe(0)
-    expect(fs.exists(fs.join(chests.out, Merged))).toBe(false)
+    expect((fs.exists(fs.join(chests.out, Merged)))).toBe(false)
     expect(cli.run { '--config', chests.config, '--output-dir', chests.out, '-i' }).toBe(0)
     expect(merged(chests.out):count()).toBe(2)
   end)
@@ -652,7 +652,7 @@ suite.describe('run', function()
       expect(cli.run(argv)).toBe(9)
     end
 
-    expect(fs.exists(fs.join(order.out, Merged))).toBe(false)
+    expect((fs.exists(fs.join(order.out, Merged)))).toBe(false)
     expect(fixtures.read(order.config)).toBe(before)
   end)
 
@@ -679,7 +679,7 @@ suite.describe('run', function()
     )
     if not done then error(problem, 0) end
     expect(cli.run { '--config', order.config }).toBe(9)
-    expect(fs.exists(fs.join(order.root, 'resources/vfs/' .. Merged))).toBe(false)
+    expect((fs.exists(fs.join(order.root, 'resources/vfs/' .. Merged)))).toBe(false)
   end)
 
   suite.it('returns 0 for a merge that left plugins out, and for one with nothing to do', function()
@@ -697,7 +697,7 @@ suite.describe('run', function()
     fixtures.forget()
     expect(cli.run { '--config', nothing.config, '--patches', 'none' }).toBe(0)
     expect(fixtures.output()).toBe 'tes3merge: no merges were deemed necessary\n'
-    expect(fs.exists(fs.join(nothing.data, Merged))).toBe(false)
+    expect((fs.exists(fs.join(nothing.data, Merged)))).toBe(false)
   end)
 end)
 

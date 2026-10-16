@@ -82,7 +82,8 @@ type Tally = { entry: Table, count: number }
 -- An object filter, read once: whether a record's id is one it names, and whether it keeps them.
 type ObjectFilter = { regex: Regex, allow: boolean }
 
-local CaseInsensitive = { caseInsensitive = true }
+local CaseInsensitive: { caseInsensitive: boolean?, unicode: boolean?, multiLine: boolean?, dotAll: boolean? } =
+  { caseInsensitive = true }
 
 -- What the tool reads of a record before it merges it, as `plugin:decode` gives them.
 type Creature = { id: string, flags: string }
