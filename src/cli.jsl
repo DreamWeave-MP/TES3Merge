@@ -320,12 +320,9 @@ end
 --- under any capitalization. Nil and why when neither names one.
 local function configuration(given: string?): (string?, string?)
   local selected = given
-  if not selected then
-    -- `process.env` throws in a runtime without the process.environment capability. A caller
-    -- there can only name the configuration with --config, so the variable counts as unset.
-    local readable, value = pcall(process.env, 'OPENMW_CONFIG')
-    if readable then selected = value end
-  end
+  -- A caller without the process.environment capability can only name the configuration with
+  -- --config, so there the variable counts as unset.
+  if not selected and jess.granted 'process.environment' then selected = process.env 'OPENMW_CONFIG' end
 
   if not selected or selected == '' then
     return nil,

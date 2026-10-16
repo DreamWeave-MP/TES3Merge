@@ -141,11 +141,10 @@ suite.describe('merging', function()
   end)
 
   suite.it('merges a real load order when JESS_TES3MERGE_CFG names one', function()
-    -- `process.env` throws in a runtime without the process.environment capability, which
-    -- `jess package test` doesn't grant: the scenario is skipped there, as it is without the
-    -- variable.
-    local readable, real = pcall(process.env, 'JESS_TES3MERGE_CFG')
-    if not readable or not real or real == '' then return end
+    -- `jess package test` doesn't grant process.environment: the scenario is skipped there, as it
+    -- is without the variable.
+    local real = if jess.granted 'process.environment' then process.env 'JESS_TES3MERGE_CFG' else nil
+    if not real or real == '' then return end
 
     -- The real configuration is only read. A configuration chained after it sets data-local to
     -- this case's own folder, so nothing the merge writes can land in the real data folders.
