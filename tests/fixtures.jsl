@@ -8,6 +8,15 @@ local openmw = require '@openmw'
 local tes3 = require '@tes3'
 local tes3merge = require '@tes3merge'
 
+--- The text of the file at `path`, raising the read's own message when there is none.
+local function readText(path: string): string
+  local text, problem = fs.readFileString(path)
+  if not text then error(problem, 0) end
+
+  return text
+end
+
+
 export type Fields = { [string]: unknown }
 
 --- A load order in scratch: its folder, its openmw.cfg, its data folder, a `data-local` folder
@@ -122,7 +131,7 @@ local function open(path: string, encoding: string?): tes3.Plugin
 end
 
 --- A file's text.
-local function read(path: string): string return io(fs.readFileString(path)) end
+local function read(path: string): string return io(readText(path)) end
 
 local Three = table.freeze { 'Base.esm', 'A.esp', 'B.esp' }
 
