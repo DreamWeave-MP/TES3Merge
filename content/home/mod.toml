@@ -11,6 +11,11 @@ status = "active"
 name = "DreamWeave"
 url = "https://github.com/DreamWeave-MP"
 
+[[credits]]
+name = "NullCascade"
+role = "TES3Merge, the original: this package is a port of it, under its MIT license (LICENSES/TES3Merge-LICENSE-MIT.txt)"
+url = "https://github.com/NullCascade/TES3Merge"
+
 [package]
 format = "jpk"
 jess = "org.dreamweave.tes3merge"
