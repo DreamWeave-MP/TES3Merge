@@ -1,0 +1,53 @@
+{
+  "schema_version": "3",
+  "document": "lock",
+  "project": "13fe2321-0f57-4368-9690-50400d433c61",
+  "note": "Written by CI when a release tag is pushed: what each published release's archive contains. Do not edit.",
+  "releases": [
+    {
+      "version": "0.1.0",
+      "locked_from": "b9b4a86725a9fb9b09f05e32afba68bf990ef8ac",
+      "artifacts": [
+        {
+          "id": "jpk",
+          "format": "jpk",
+          "filename": "org.dreamweave.tes3merge-0.1.0.jpk",
+          "media_type": "application/vnd.jess.jpk",
+          "size": 46191,
+          "digests": {
+            "sha256": "8890bccc5c09bd2519fe1ab60817bd22f57c571e27cc7046c1017ca3d6eb7358"
+          },
+          "jess": {
+            "package": "org.dreamweave.tes3merge",
+            "jess_api": "1",
+            "content_digest": "c829af7c0ddc3342bef4f2d7001229a487651005dba6ccd3bc07a34cfffa5fee",
+            "dependencies": {
+              "org.dreamweave.esm": "0.1",
+              "org.dreamweave.openmw-content": "0.1",
+              "org.dreamweave.openmw-install": "0.1"
+            }
+          }
+        }
+      ],
+      "runtimes": {},
+      "platforms": [],
+      "provides": [],
+      "relationships": [],
+      "components": [
+        {
+          "id": "main",
+          "name": "tes3merge",
+          "path": ".",
+          "required": true,
+          "default": true,
+          "requires": [],
+          "conflicts": [],
+          "suggested_with": []
+        }
+      ],
+      "groups": [],
+      "extensions": {},
+      "critical_extensions": []
+    }
+  ]
+}
