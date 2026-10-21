@@ -2,7 +2,7 @@
 --!native
 --[[
 tes3merge, timed through its public modules: whole merges over load orders built here with
-`@tes3`, each `@tes3merge` called with an `@openmw` Context the way its command line calls it;
+`@esm`, each `@tes3merge` called with an `@openmw-install` Context the way its command line calls it;
 the command line's argument lists read; and the command line itself, warm and run once.
 
   jess run --capability filesystem.read --capability filesystem.write \
@@ -33,9 +33,9 @@ this package without one.
 local bytes = require '@dream/bytes'
 local cli = require '@tes3merge/cli'
 local fs = require '@dream/fs'
-local openmw = require '@openmw'
+local openmw = require '@openmw-install'
 local process = require '@dream/process'
-local tes3 = require '@tes3'
+local tes3 = require '@esm'
 local tes3merge = require '@tes3merge'
 
 -- A build without the verified toolchain runs Luau slower than a release does, so a number from

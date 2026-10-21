@@ -2,7 +2,7 @@
 --!native
 --[[
 @tes3merge: TES3Merge's object merging, as a function of (state, openmw), openmw being the load
-order's config from `@openmw`'s `new`.
+order's config from `@openmw-install`'s `new`.
 
 Options, from `state.tes3merge`:
   recordTypes    { string }            [RecordTypes]
@@ -49,9 +49,9 @@ SOFTWARE.
 local bytes = require '@dream/bytes'
 local fs = require '@dream/fs'
 local intern = require '@dream/intern'
-local loadOrder = require '@load-order'
-local openmw = require '@openmw'
-local tes3 = require '@tes3'
+local loadOrder = require '@openmw-content'
+local openmw = require '@openmw-install'
+local tes3 = require '@esm'
 
 type Regex = dream_bytes_Regex
 

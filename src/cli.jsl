@@ -27,7 +27,7 @@ when the merge raised. Messages go to standard error as `tes3merge: <message>`.
 ]]
 
 local fs = require '@dream/fs'
-local openmw = require '@openmw'
+local openmw = require '@openmw-install'
 local process = require '@dream/process'
 local tes3merge = require '@tes3merge'
 

@@ -6,7 +6,7 @@
 local fixtures = require './fixtures'
 local fs = require '@dream/fs'
 local process = require '@dream/process'
-local tes3 = require '@tes3'
+local tes3 = require '@esm'
 local tes3merge = require '@tes3merge'
 local test = require '@jess/test'
 

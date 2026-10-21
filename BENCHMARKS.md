@@ -1,7 +1,7 @@
 # tes3merge benchmarks
 
-`bench/bench.jsl` times the tool the way it is reached: `@tes3merge` called with an `@openmw`
-Context over load orders the bench builds with `@tes3`, the argument lists `@tes3merge/cli`
+`bench/bench.jsl` times the tool the way it is reached: `@tes3merge` called with an `@openmw-install`
+Context over load orders the bench builds with `@esm`, the argument lists `@tes3merge/cli`
 reads, and the command line, warm and from a cold start. The load order is a master of 6,200
 records of the types the tool merges (items, spells with their effects, NPCs and creatures with
 their packages and inventories, leveled lists, interior and exterior cells with their references,
@@ -74,7 +74,7 @@ sets, and 1.01x between the same two sides in the run of every commit below.
 ## What moved, and why
 
 Nothing in this package is a loop over a buffer, so nothing here went to the data plane. What it
-does with its time is ask `@tes3` for things (open, a record's tag and id, a decoded record, an
+does with its time is ask `@esm` for things (open, a record's tag and id, a decoded record, an
 encoded one), and group and compare the tables it gets back. The gains are from asking less and
 allocating less. Each commit was measured against the one before it: the warm workloads against
 an export of every commit of the move, four rounds, first to last and last to first by turns,
@@ -117,7 +117,7 @@ and 0.98x to 1.00x on the cold ones over four rounds against the commit before i
 ## What is left
 
 A cold run is 275 to 330 ms, of which the merge itself is at most 45. Loading what the command
-line needs takes a fresh process about 278 ms (the median of twelve): `@tes3` 112 ms, `@openmw`
+line needs takes a fresh process about 278 ms (the median of twelve): `@esm` 112 ms, `@openmw-install`
 with the packages under it 153 ms, which are not this package's to shorten, and this package's
 own two modules about 12 ms.
 

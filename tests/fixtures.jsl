@@ -1,11 +1,11 @@
 --!strict
 --!native
 -- What the tes3merge suites share: the load orders the tool's old harness built inline, built here
--- with @tes3 in a folder under the host's scratch root, and a merge over one that keeps what the
+-- with @esm in a folder under the host's scratch root, and a merge over one that keeps what the
 -- tool printed.
 local fs = require '@dream/fs'
-local openmw = require '@openmw'
-local tes3 = require '@tes3'
+local openmw = require '@openmw-install'
+local tes3 = require '@esm'
 local tes3merge = require '@tes3merge'
 
 --- The text of the file at `path`, raising the read's own message when there is none.
