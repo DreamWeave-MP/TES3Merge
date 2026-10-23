@@ -10,11 +10,13 @@
   tes3merge --help, -h, -?
   tes3merge --version
 
-A run is @tes3merge over the configuration `--config` names, else the one `OPENMW_CONFIG` names:
-each a file, or a folder holding an openmw.cfg. Every option is one of that module's, under the
-flag TES3Merge gave it; the settings TES3Merge read from `TES3Merge.ini`, which the port never
-reads, and the port's own options have a flag each as well. `parse` reads an argument list into
-the command it names without running it, or says what it couldn't read.
+A run is @tes3merge over the configuration `--config` names, else the one `OPENMW_CONFIG` names,
+each a file or a folder holding an openmw.cfg, else OpenMW's own, in the folder OpenMW keeps it in
+on this platform, with OpenMW's own folders for its `?userconfig?` and `?userdata?`. Every option
+is one of that module's, under the flag TES3Merge gave it; the settings TES3Merge read from
+`TES3Merge.ini`, which the port never reads, and the port's own options have a flag each as well.
+`parse` reads an argument list into the command it names without running it, or says what it
+couldn't read.
 
 The merge prints what it did itself. Afterwards each entry of its report's `failed` (a plugin
 that couldn't be read, a record that couldn't be merged) goes to standard error; those don't
@@ -26,8 +28,8 @@ option, a command the port doesn't have, no configuration, a configuration that 
 when the merge raised. Messages go to standard error as `tes3merge: <message>`.
 ]]
 
-local fs = require '@dream/fs'
 local openmw = require '@openmw-install'
+local openmwConfig = require '@openmw-config'
 local process = require '@dream/process'
 local tes3merge = require '@tes3merge'
 
@@ -48,8 +50,8 @@ tes3merge: TES3Merge's object merging, over an OpenMW load order
 
 Reads the configuration's content files, merges each record three or more of them define, applies
 the patches, and writes "Merged Objects.esp" into the configuration's data-local folder, else its
-first data folder. The configuration is the one --config names, else the one OPENMW_CONFIG names;
-there is no default.
+first data folder. The configuration is the one --config names, else the one OPENMW_CONFIG names,
+else OpenMW's own.
 
 TES3Merge's options:
   -r, --records <type>...     merge only these record types, by tag (NPC_ LEVI)
@@ -316,38 +318,16 @@ local function parse(argv: { string }): (Command?, string?)
   return command, nil
 end
 
---- The openmw.cfg `given` names, or the one OPENMW_CONFIG does: a file, or a folder holding one
---- under any capitalization. Nil and why when neither names one.
+--- The openmw.cfg `given` names, else OPENMW_CONFIG's, else OpenMW's own: a file, or a folder
+--- holding one under any capitalization. Nil and why when there is none. A caller without the
+--- process.environment capability can only name it with --config, and an empty one names nothing.
 local function configuration(given: string?): (string?, string?)
-  local selected = given
-  -- A caller without the process.environment capability can only name the configuration with
-  -- --config, so there the variable counts as unset.
-  if not selected and jess.granted 'process.environment' then selected = process.env 'OPENMW_CONFIG' end
+  if given == '' then return nil, '--config names no configuration' end
 
-  if not selected or selected == '' then
-    return nil,
-      'an OpenMW configuration is required: pass --config <openmw.cfg or its folder> or set OPENMW_CONFIG'
-  end
+  local path, problem = openmwConfig.locate(given)
+  if path or given then return path, problem end
 
-  local info, message, kind = fs.stat(selected)
-  if not info and kind ~= 'notFound' and message then
-    return nil, `can't read the configuration '{selected}': {message}`
-  end
-
-  if info and info.isFile then return selected, nil end
-
-  if not info or not info.isDir then
-    return nil, `the configuration '{selected}' isn't a file or a folder`
-  end
-
-  local names, listProblem = fs.list(selected)
-  if not names then return nil, `can't list the configuration folder '{selected}': {listProblem}` end
-
-  for _, name in names do
-    if string.lower(name) == 'openmw.cfg' then return fs.join(selected, name), nil end
-  end
-
-  return nil, `the folder '{selected}' has no openmw.cfg`
+  return nil, `{problem}; pass --config <openmw.cfg or its folder> or set OPENMW_CONFIG`
 end
 
 --- What a raised error says: the merge's own refusals as it words them, without the script
@@ -382,7 +362,9 @@ local function run(argv: { string }): number
 
   -- The configuration raises when it can't be read, and the merge raises where TES3Merge stops:
   -- options it can't use, nowhere to write, a file it can't write.
-  local merged, problem = pcall(function() tes3merge(state, openmw.new(path)) end)
+  local merged, problem = pcall(function()
+    tes3merge(state, openmw.new(path, { tokens = openmwConfig.userFolders() }))
+  end)
 
   if not merged then
     err(reason(problem))

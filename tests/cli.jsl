@@ -483,11 +483,12 @@ suite.describe('run', function()
     end
   end)
 
-  suite.it('returns 8 without a configuration', function()
-    -- `jess package test` grants no process.environment, so OPENMW_CONFIG can't name one here.
-    expect(cli.run {}).toBe(8)
-    expect(cli.run { '--verbose' }).toBe(8)
+  -- No command line here leaves the configuration unnamed: the merge would then read the machine's
+  -- own OpenMW load order and write a plugin into it. Where an unnamed one falls back to is
+  -- openmw-config's `locate`, tested there.
+  suite.it('returns 8 for an empty --config, which names nothing', function()
     expect(cli.run { '--config', '' }).toBe(8)
+    expect(cli.run { '--config', '', '--verbose' }).toBe(8)
   end)
 
   suite.it('returns 8 for a configuration that isn\'t there, and writes nothing', function()
