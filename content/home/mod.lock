@@ -1,5 +1,5 @@
 {
-  "schema_version": "3",
+  "schema_version": "4",
   "document": "lock",
   "project": "13fe2321-0f57-4368-9690-50400d433c61",
   "note": "Written by CI when a release tag is pushed: what each published release's archive contains. Do not edit.",
@@ -23,6 +23,52 @@
             "content_digest": "c829af7c0ddc3342bef4f2d7001229a487651005dba6ccd3bc07a34cfffa5fee",
             "dependencies": {
               "org.dreamweave.esm": "0.1",
+              "org.dreamweave.openmw-content": "0.1",
+              "org.dreamweave.openmw-install": "0.1"
+            }
+          }
+        }
+      ],
+      "runtimes": {},
+      "platforms": [],
+      "provides": [],
+      "relationships": [],
+      "components": [
+        {
+          "id": "main",
+          "name": "tes3merge",
+          "path": ".",
+          "required": true,
+          "default": true,
+          "requires": [],
+          "conflicts": [],
+          "suggested_with": []
+        }
+      ],
+      "groups": [],
+      "extensions": {},
+      "critical_extensions": []
+    },
+    {
+      "version": "0.1.1",
+      "locked_from": "b9c23622e7788bfbb703acb270bbad2394d7ced3",
+      "artifacts": [
+        {
+          "id": "jpk",
+          "format": "jpk",
+          "filename": "org.dreamweave.tes3merge-0.1.1.jpk",
+          "media_type": "application/vnd.jess.jpk",
+          "size": 46088,
+          "digests": {
+            "sha256": "3ad3244f8f8d5e8aa23d75ef87b7ae30728dea89bd5aa3d4233e2bf7debca13e"
+          },
+          "jess": {
+            "package": "org.dreamweave.tes3merge",
+            "jess_api": "1",
+            "content_digest": "01b98b9a3791aef34d52fd431a60aa759545f1a4c4b658727dd49340ad0de863",
+            "dependencies": {
+              "org.dreamweave.esm": "0.1",
+              "org.dreamweave.openmw-config": "4.2",
               "org.dreamweave.openmw-content": "0.1",
               "org.dreamweave.openmw-install": "0.1"
             }
